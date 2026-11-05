@@ -15,6 +15,14 @@ OmniBooks reads Markdown notes that carry book frontmatter (`title`, `author`, `
 
 ## Installation
 
+### Community plugins (recommended)
+
+1. Open **Settings → Community plugins → Browse**.
+2. Search for **OmniBooks**.
+3. Install, then enable it.
+
+Or open it directly: [obsidian://show-plugin?id=omnibooks](obsidian://show-plugin?id=omnibooks).
+
 ### Manual
 
 Copy these files into `<vault>/.obsidian/plugins/omnibooks/`:
@@ -28,6 +36,8 @@ styles.css
 Restart Obsidian, then enable **OmniBooks** in Settings → Community plugins.
 
 ### BRAT (beta)
+
+BRAT is only needed for testing builds that are not in the community directory yet.
 
 1. Install the **BRAT** plugin from the community directory.
 2. Run `BRAT: Add a beta plugin for testing`.
@@ -84,6 +94,14 @@ MIT
 
 ## 安装
 
+### 社区市场（推荐）
+
+1. 设置 → 第三方插件 → 浏览；
+2. 搜索 **OmniBooks**；
+3. 安装并启用。
+
+也可以直接打开：[obsidian://show-plugin?id=omnibooks](obsidian://show-plugin?id=omnibooks)。
+
 ### 手动
 
 把 `main.js`、`manifest.json`、`styles.css` 放进：
@@ -95,6 +113,8 @@ MIT
 重启 Obsidian → 设置 → 第三方插件 → 启用 **OmniBooks**。
 
 ### BRAT（内测）
+
+只用于社区目录里还没有的测试版本。
 
 1. 先安装社区插件 **BRAT**；
 2. 命令面板执行 `BRAT: Add a beta plugin for testing`；
