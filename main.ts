@@ -5413,7 +5413,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "OmniBooks" });
+    new Setting(containerEl).setName("OmniBooks").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "随处可读，一处留痕",
