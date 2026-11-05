@@ -43,6 +43,9 @@ type CoverMode = "auto" | "fill" | "contain" | "stretch" | "straighten-contain";
 type SortKey = "recent" | "title" | "rating" | "progress" | "words";
 type ShelfLayout = "grid" | "deck" | "stack" | "coverflow" | "timeline";
 
+/** iPhone 只保留封面墙和时间线；iPad / 电脑使用完整布局。 */
+const PHONE_LAYOUTS: ShelfLayout[] = ["grid", "timeline"];
+
 interface AppleBooksSettings {
   folder: string;
   coverField: string;
@@ -110,6 +113,7 @@ interface AppleBooksSettings {
   ribbonIconStroke: number;
   aiModels: string[];
   onboarded: boolean;
+  setupPending: boolean;
   setupSource: SetupSource | null;
   feedbackUrl: string;
   bookNoteView: "reader" | "reading" | "live";
@@ -191,9 +195,10 @@ const DEFAULT_SETTINGS: AppleBooksSettings = {
   ribbonIconStroke: 0.5,
   aiModels: [],
   onboarded: false,
+  setupPending: false,
   setupSource: null,
   feedbackUrl: "https://github.com/0xTack/OmniBooks/issues/new",
-  bookNoteView: "reading",
+  bookNoteView: "reader",
 };
 
 interface Book {
@@ -303,7 +308,8 @@ function appleBooksStatus(): {
   if (!Platform.isDesktopApp) {
     return {
       label: "手机端需 Mac 中转",
-      detail: "苹果图书同步需要同一 iCloud 库里的 Mac 运行 Obsidian；手机只负责写入同步请求。",
+      detail:
+        "苹果图书首次同步需要在同一 iCloud 库的 Mac 上完成；之后平板/手机点同步，会由正在运行的 Mac 执行。",
     };
   }
   if (process.platform !== "darwin") {
@@ -517,6 +523,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    document.body.toggleClass("omnibooks-tablet", Platform.isTablet);
+    document.body.toggleClass("omnibooks-phone", Platform.isPhone);
     this.applyHiddenFolders();
     this.applyPropertyVisibility();
     this.registerInterval(
@@ -576,16 +584,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
           return;
         }
         if (this.switchingToReader) return;
-        if (!this.isBookNote(file)) return;
-        if (this.settings.bookNoteView === "reading") {
-          void this.openInReadingMode(file);
-        } else {
-          const active = this.app.workspace.activeLeaf;
-          this.scheduleOpenInReader(
-            file,
-            active?.view instanceof MarkdownView ? active : undefined
-          );
-        }
+        const active = this.app.workspace.activeLeaf;
+        this.openAsBookNote(file, active ?? undefined);
       })
     );
 
@@ -596,12 +596,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
           return;
         }
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view?.file || !this.isBookNote(view.file)) return;
-        if (this.settings.bookNoteView === "reading") {
-          void this.openInReadingMode(view.file, view.leaf);
-        } else {
-          this.scheduleOpenInReader(view.file, view.leaf);
-        }
+        if (!view?.file) return;
+        this.openAsBookNote(view.file, view.leaf);
       })
     );
 
@@ -613,11 +609,17 @@ export default class AppleBooksShelfPlugin extends Plugin {
         }
         if (!(leaf?.view instanceof MarkdownView)) return;
         const file = leaf.view.file;
-        if (!file || !this.isBookNote(file)) return;
-        if (this.settings.bookNoteView === "reading") {
-          void this.openInReadingMode(file, leaf);
-        } else {
-          this.scheduleOpenInReader(file, leaf);
+        if (!file) return;
+        this.openAsBookNote(file, leaf);
+      })
+    );
+
+    this.registerEvent(
+      this.app.metadataCache.on("resolved", () => {
+        if (this.settings.bookNoteView === "live") return;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (view?.file && this.isBookNote(view.file)) {
+          this.openAsBookNote(view.file, view.leaf);
         }
       })
     );
@@ -637,6 +639,28 @@ export default class AppleBooksShelfPlugin extends Plugin {
       name: "打开 OmniBooks",
       callback: () => {
         void this.activateView();
+      },
+    });
+
+    this.addCommand({
+      id: "cycle-shelf-view",
+      name: "切换书架视图",
+      callback: () => {
+        const order: ShelfLayout[] = Platform.isPhone
+          ? ["grid", "timeline"]
+          : ["grid", "deck", "coverflow", "timeline"];
+        const labels: Record<ShelfLayout, string> = {
+          grid: "封面墙",
+          deck: "卡片模式",
+          stack: "叠放",
+          coverflow: "唱片模式",
+          timeline: "时间线",
+        };
+        const index = order.indexOf(this.settings.shelfLayout);
+        const next = order[(index + 1) % order.length];
+        this.settings.shelfLayout = next;
+        void this.saveSettings();
+        new Notice(`已切换到：${labels[next]}`);
       },
     });
 
@@ -682,7 +706,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
       id: "refresh-apple-books-shelf",
       name: "重新扫描书库",
       callback: () => {
-        this.refreshViews(true);
+        this.refreshViews(true, true);
       },
     });
 
@@ -839,6 +863,16 @@ export default class AppleBooksShelfPlugin extends Plugin {
     this.addSettingTab(new AppleBooksShelfSettingTab(this.app, this));
 
     this.app.workspace.onLayoutReady(() => {
+      window.setTimeout(() => {
+        const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (
+          active?.file &&
+          this.settings.bookNoteView === "reading" &&
+          this.isBookNote(active.file)
+        ) {
+          void this.openInReadingMode(active.file, active.leaf);
+        }
+      }, 500);
       void this.migrateLayout().then(async () => {
         if (!this.settings.timestampsMigrated) {
           await this.migrateTimestampsAbove(false);
@@ -849,7 +883,17 @@ export default class AppleBooksShelfPlugin extends Plugin {
         if (this.settings.autoCleanDuplicates !== false) {
           await this.cleanDuplicateNotes();
         }
-        if (!this.settings.onboarded) this.openSetupWizard();
+        if (!this.settings.onboarded) {
+          this.openSetupWizard();
+        } else if (this.settings.setupPending) {
+          new Notice(
+            "OmniBooks：还有书源未设置完成，可在 设置 → 安装向导 继续。",
+            6000
+          );
+        }
+
+        // 插件重载后强制重建已有书架视图，确保拿到最新的工具栏/滑杆 DOM。
+        window.setTimeout(() => this.refreshViews(false, true), 400);
       });
     });
   }
@@ -879,13 +923,76 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
 
   isBookNote(file: TFile): boolean {
+    if (file.extension !== "md") return false;
     const dirs = [
       this.settings.booksOutputDir || DEFAULT_SETTINGS.booksOutputDir,
       this.settings.wereadOutputDir || DEFAULT_SETTINGS.wereadOutputDir,
     ]
       .filter(Boolean)
       .map((dir) => normalizePath(dir));
-    return dirs.some((dir) => file.path.startsWith(`${dir}/`));
+    if (dirs.some((dir) => file.path.startsWith(`${dir}/`))) return true;
+    // 目录设置还没同步到新设备时，先用书名/书源文件夹兜底。
+    if (/(^|\/)(苹果图书|微信读书)(\/|$)/.test(file.path)) return true;
+
+    // 换设备后目录设置可能还没同步过来：再用书籍 frontmatter 认一次。
+    const cache = this.app.metadataCache.getFileCache(file);
+    const fm = cache?.frontmatter as Record<string, unknown> | undefined;
+    if (!fm) return false;
+
+    const classes = Array.isArray(fm.cssclasses)
+      ? fm.cssclasses.map((value) => String(value))
+      : typeof fm.cssclasses === "string"
+        ? fm.cssclasses.split(/\s+/)
+        : [];
+    if (classes.includes("omnibooks")) return true;
+
+    const source = String(fm.source ?? "").toLowerCase();
+    if (source === "weread" || source === "apple" || source === "apple-books") {
+      return true;
+    }
+
+    return ["bookId", "cover", "highlights", "readingTime", "lastRead", "annotation_count", "open_url", "source_file"]
+      .some((key) => {
+        const value = fm[key];
+        return value !== undefined && value !== null && String(value).trim() !== "";
+      });
+  }
+
+  /** 新设备上 metadataCache 可能晚于 file-open；这里短轮询等它认出书籍笔记。 */
+  private openAsBookNote(
+    file: TFile,
+    leaf?: WorkspaceLeaf,
+    attempt = 0
+  ): void {
+    if (this.settings.bookNoteView === "live") return;
+    if (this.allowSourceOpen || this.switchingToReader || this.altKeyDown) return;
+    if (this.manualSourcePath === file.path) return;
+    if (attempt > 0) {
+      const stillOpen = this.app.workspace
+        .getLeavesOfType("markdown")
+        .some(
+          (item) =>
+            item.view instanceof MarkdownView &&
+            item.view.file?.path === file.path
+        );
+      if (!stillOpen) return;
+    }
+
+    if (!this.isBookNote(file)) {
+      if (attempt < 20) {
+        window.setTimeout(
+          () => this.openAsBookNote(file, leaf, attempt + 1),
+          150
+        );
+      }
+      return;
+    }
+
+    if (this.settings.bookNoteView === "reading") {
+      void this.openInReadingMode(file, leaf);
+    } else {
+      this.scheduleOpenInReader(file, leaf);
+    }
   }
 
   private ensureActiveBookReader(): void {
@@ -1032,25 +1139,67 @@ export default class AppleBooksShelfPlugin extends Plugin {
     file: TFile,
     preferredLeaf?: WorkspaceLeaf
   ): Promise<void> {
-    if (this.switchingToReader) return;
-    this.switchingToReader = true;
-    try {
-      const view =
-        preferredLeaf?.view instanceof MarkdownView
-          ? preferredLeaf.view
-          : this.app.workspace.getActiveViewOfType(MarkdownView);
-      if (!view || view.file?.path !== file.path) return;
-      const state = view.getState();
-      await view.leaf.setViewState({
-        type: "markdown",
-        state: { ...state, file: file.path, mode: "preview" },
-      });
-    } catch {
-      /* 保持当前视图 */
-    } finally {
-      window.setTimeout(() => {
-        this.switchingToReader = false;
-      }, 250);
+    // 换设备 / iCloud 刚同步时，file-open 往往早于 MarkdownView 就绪。
+    // 这里不依赖单次事件，连续找几次 leaf，并同时尝试 setViewState 与 setState。
+    const requestId = ++this.readerRequestId;
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (requestId !== this.readerRequestId) return;
+      if (this.allowSourceOpen || this.manualSourcePath === file.path) return;
+
+      const activeLeaf = this.app.workspace.activeLeaf;
+      const activeView = activeLeaf?.view;
+      const candidate =
+        preferredLeaf?.view instanceof MarkdownView &&
+        preferredLeaf.view.file?.path === file.path
+          ? preferredLeaf
+          : activeView instanceof MarkdownView &&
+              activeView.file?.path === file.path
+            ? activeLeaf
+            : await this.findMarkdownLeaf(file);
+
+      const view = candidate?.view;
+      if (candidate && view instanceof MarkdownView && view.file?.path === file.path) {
+        if (view.getMode() === "preview") return;
+
+        try {
+          const state = view.getState();
+          await candidate.setViewState({
+            type: "markdown",
+            state: { ...state, file: file.path, mode: "preview" },
+          });
+        } catch {
+          /* 继续尝试下面的 setState */
+        }
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
+        if (requestId !== this.readerRequestId) return;
+        if (
+          candidate.view instanceof MarkdownView &&
+          candidate.view.getMode() === "preview"
+        ) {
+          return;
+        }
+
+        try {
+          await view.setState(
+            { ...view.getState(), file: file.path, mode: "preview" },
+            { history: false }
+          );
+        } catch {
+          /* 下一轮继续 */
+        }
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
+        if (requestId !== this.readerRequestId) return;
+        if (
+          candidate.view instanceof MarkdownView &&
+          candidate.view.getMode() === "preview"
+        ) {
+          return;
+        }
+      }
+
+      await new Promise<void>((resolve) =>
+        window.setTimeout(resolve, attempt < 8 ? 40 : 120)
+      );
     }
   }
 
@@ -1103,7 +1252,10 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
   applyIconVars(): void {
     const root = document.documentElement;
-    root.setCssProps({ "--omni-icon-size": `${this.settings.ribbonIconSize || 22}px` });
+    const base = this.settings.ribbonIconSize || 22;
+    // 手机和 iPad 的侧边栏图标统一在设置值基础上 +4，默认 19 → 23px。
+    const size = Platform.isMobile ? Math.min(30, base + 4) : base;
+    root.setCssProps({ "--omni-icon-size": `${size}px` });
     root.setCssProps({ "--omni-icon-stroke": `${this.settings.ribbonIconStroke || 0.5}px`
      });
   }
@@ -1130,8 +1282,14 @@ export default class AppleBooksShelfPlugin extends Plugin {
   }
 
   openSetupWizard(): void {
+    // 首次打开即记为“已看过”：即使中途关掉，也不再每次启动都弹。
+    // 但保留 setupPending，下次启动用一条轻提示提醒还有书源没连完。
+    const firstRun = !this.settings.onboarded;
+    this.settings.onboarded = true;
+    if (firstRun) this.settings.setupPending = true;
+    void this.saveData(this.settings);
     new SetupWizardModal(this.app, {
-      source: this.settings.setupSource ?? null,
+      source: null,
       wereadApiKey: this.settings.wereadApiKey ?? "",
       appleStatus: () => appleBooksStatus(),
       onWereadQrLogin: () => this.startWereadQrLogin(),
@@ -1141,13 +1299,15 @@ export default class AppleBooksShelfPlugin extends Plugin {
       onOpenBooks: () => {
         openExternal("ibooks://");
       },
-      onDismiss: () => {
+      onSkip: () => {
         this.settings.onboarded = true;
+        this.settings.setupPending = false;
         void this.saveSettings();
       },
       onFinish: async (result: SetupResult) => {
         this.settings.setupSource = result.source;
         this.settings.onboarded = true;
+        this.settings.setupPending = false;
 
         if (result.wereadSkipped) {
           this.settings.wereadEnabled = false;
@@ -2044,7 +2204,10 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
             this.settings.wereadApiKey = key;
             await this.saveSettings();
-            new Notice("微信读书 API Key 获取成功");
+            new Notice(
+              "已保存微信读书 API Key。这台设备以后会自动使用；其他设备第一次使用时各填一次。",
+              6000
+            );
             finish(key);
             win.close();
           } catch {
@@ -2275,7 +2438,10 @@ export default class AppleBooksShelfPlugin extends Plugin {
       if (!key) throw new Error("现有 Weread 插件里没有 API Key");
       this.settings.wereadApiKey = key;
       await this.saveSettings();
-      new Notice("已导入微信读书 API Key");
+      new Notice(
+        "已导入并保存微信读书 API Key。这台设备以后会自动使用；其他设备第一次使用时各填一次。",
+        6000
+      );
       return true;
     } catch (error) {
       new Notice(`导入失败：${error instanceof Error ? error.message : String(error)}`);
@@ -2397,11 +2563,11 @@ export default class AppleBooksShelfPlugin extends Plugin {
     }
   }
 
-  refreshViews(notify = false): void {
+  refreshViews(notify = false, force = false): void {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_APPLE_BOOKS);
     for (const leaf of leaves) {
       if (leaf.view instanceof AppleBooksShelfView) {
-        leaf.view.rebuild();
+        leaf.view.rebuild(force);
       }
     }
     if (notify) new Notice("OmniBooks：已重新扫描");
@@ -2423,7 +2589,9 @@ export default class AppleBooksShelfPlugin extends Plugin {
     ) {
       this.settings.bookNoteView = "live";
     }
-    const allowed: ShelfLayout[] = ["grid", "deck", "stack", "coverflow", "timeline"];
+    const allowed: ShelfLayout[] = Platform.isPhone
+      ? ["grid", "timeline"]
+      : ["grid", "deck", "coverflow", "timeline"];
     if (!allowed.includes(this.settings.shelfLayout)) {
       this.settings.shelfLayout = "grid";
     }
@@ -2501,7 +2669,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
     await this.saveData(this.settings);
     this.applyHiddenFolders();
     this.applyPropertyVisibility();
-    this.refreshViews();
+    this.refreshViews(false, true);
   }
 
 
@@ -2524,6 +2692,10 @@ export class AppleBooksShelfView extends ItemView {
   private refreshTimer: number | null = null;
   private scanStats = { files: 0, matched: 0 };
   private refreshPromise: Promise<void> | null = null;
+  private refreshQueued = false;
+  private lastRenderSignature = "";
+  private lastStatsSignature = "";
+  private chromeSyncEnabled = true;
 
   constructor(leaf: WorkspaceLeaf, plugin: AppleBooksShelfPlugin) {
     super(leaf);
@@ -2576,11 +2748,63 @@ export class AppleBooksShelfView extends ItemView {
         behavior: "smooth",
       });
     });
-    this.registerEvent(this.app.vault.on("delete", () => this.scheduleRefresh()));
-    this.registerEvent(this.app.vault.on("rename", () => this.scheduleRefresh()));
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        this.coverFileIndex = null;
+        this.invalidateCoverBlob(file.path);
+        this.scheduleRefresh();
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        this.coverFileIndex = null;
+        this.invalidateCoverBlob(oldPath);
+        this.invalidateCoverBlob(file.path);
+        this.scheduleRefresh();
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("create", () => {
+        this.coverFileIndex = null;
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (
+          file instanceof TFile &&
+          /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(file.extension)
+        ) {
+          this.invalidateCoverBlob(file.path);
+        }
+      })
+    );
 
     this.registerEvent(
-      this.app.metadataCache.on("resolved", () => void this.refreshData())
+      this.app.metadataCache.on("resolved", () => this.scheduleRefresh())
+    );
+    this.registerDomEvent(
+      window,
+      "pointerup",
+      () => this.unlockDeckScroll(),
+      { capture: true }
+    );
+    this.registerDomEvent(
+      window,
+      "pointercancel",
+      () => this.unlockDeckScroll(),
+      { capture: true }
+    );
+    this.registerDomEvent(
+      window,
+      "touchend",
+      () => this.unlockDeckScroll(),
+      { capture: true }
+    );
+    this.registerDomEvent(
+      window,
+      "touchcancel",
+      () => this.unlockDeckScroll(),
+      { capture: true }
     );
     this.app.workspace.onLayoutReady(() => {
       if (this.containerEl.isConnected) void this.refreshData();
@@ -2588,10 +2812,24 @@ export class AppleBooksShelfView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.unlockDeckScroll();
     if (this.refreshTimer !== null) {
       window.clearTimeout(this.refreshTimer);
       this.refreshTimer = null;
     }
+    this.coverObserver?.disconnect();
+    this.coverObserver = null;
+    this.coverflowObserver?.disconnect();
+    this.coverflowObserver = null;
+    this.timelineResizeObserver?.disconnect();
+    this.timelineResizeObserver = null;
+    this.coverLoadQueue = [];
+    this.coverLoadActive = 0;
+    this.coverBlobPending.clear();
+    for (const url of this.coverBlobCache.values()) {
+      URL.revokeObjectURL(url);
+    }
+    this.coverBlobCache.clear();
   }
 
   private scheduleRefresh(): void {
@@ -2602,8 +2840,14 @@ export class AppleBooksShelfView extends ItemView {
     }, 400);
   }
 
-  rebuild(): void {
-    this.buildChrome();
+  rebuild(force = false): void {
+    if (force) this.lastRenderSignature = "";
+    if (!this.gridEl?.isConnected || this.chromeSyncEnabled !== this.plugin.settings.syncEnabled) {
+      this.buildChrome();
+      this.lastRenderSignature = "";
+    } else {
+      this.applyScale();
+    }
     void this.refreshData();
   }
 
@@ -2611,6 +2855,12 @@ export class AppleBooksShelfView extends ItemView {
     const root = this.contentEl;
     root.empty();
     root.addClass("abs-root");
+    this.chromeSyncEnabled = this.plugin.settings.syncEnabled;
+    this.lastStatsSignature = "";
+    this.coverObserver?.disconnect();
+    this.coverObserver = null;
+    this.coverLoadQueue = [];
+    this.coverLoadActive = 0;
     this.applyScale();
 
     const toolbar = root.createDiv({ cls: "abs-toolbar" });
@@ -2704,12 +2954,17 @@ export class AppleBooksShelfView extends ItemView {
       const modes: Array<{
         id: ShelfLayout;
         label: string;
-      }> = [
-        { id: "grid", label: "封面墙" },
-        { id: "deck", label: "卡片模式" },
-        { id: "coverflow", label: "唱片模式" },
-        { id: "timeline", label: "时间线" },
-      ];
+      }> = Platform.isPhone
+        ? [
+            { id: "grid", label: "封面墙" },
+            { id: "timeline", label: "时间线" },
+          ]
+        : [
+            { id: "grid", label: "封面墙" },
+            { id: "deck", label: "卡片模式" },
+            { id: "coverflow", label: "唱片模式" },
+            { id: "timeline", label: "时间线" },
+          ];
 
       const menu = new Menu();
       for (const mode of modes) {
@@ -2719,10 +2974,19 @@ export class AppleBooksShelfView extends ItemView {
             .setChecked(this.plugin.settings.shelfLayout === mode.id)
             .onClick(async () => {
               this.plugin.settings.shelfLayout = mode.id;
-              await this.plugin.saveSettings();
-              setIcon(layoutBtn, "eye");
+              this.lastRenderSignature = "";
               this.rebuild();
+              setIcon(layoutBtn, "eye");
               new Notice(`已切换到：${mode.label}`);
+              try {
+                await this.plugin.saveSettings();
+              } catch (error) {
+                new Notice(
+                  `视图已切换，但保存失败：${
+                    error instanceof Error ? error.message : String(error)
+                  }`
+                );
+              }
             })
         );
       }
@@ -2751,30 +3015,75 @@ export class AppleBooksShelfView extends ItemView {
     setIcon(sizeBtn, "omnibooks-zoom");
 
     const pop = sizeWrap.createDiv({ cls: "abs-size-pop" });
-    const range = pop.createEl("input", {
-      attr: { type: "range", min: "0.6", max: "1.6", step: "0.05" },
+    pop.addEventListener("pointerdown", (event) => event.stopPropagation());
+    pop.addEventListener("click", (event) => event.stopPropagation());
+
+    const minus = pop.createEl("button", {
+      cls: "abs-size-step",
+      text: "−",
+      attr: { type: "button", "aria-label": "缩小" },
     });
-    const valueLabel = pop.createSpan({ cls: "abs-size-value" });
+    const select = pop.createEl("select", {
+      cls: "abs-size-select",
+      attr: { "aria-label": "视图大小" },
+    });
+    for (let percent = 60; percent <= 160; percent += 5) {
+      select.createEl("option", {
+        text: `${percent}%`,
+        value: (percent / 100).toFixed(2),
+      });
+    }
+    const plus = pop.createEl("button", {
+      cls: "abs-size-step",
+      text: "+",
+      attr: { type: "button", "aria-label": "放大" },
+    });
 
-    const syncRange = () => {
-      const scale = this.currentScale();
-      range.value = String(scale);
-      valueLabel.setText(`${Math.round(scale * 100)}%`);
-    };
-    syncRange();
+    let currentValue = this.currentScale();
 
-    range.addEventListener("input", () => {
-      const value = Number(range.value);
+    const clampScale = (input: number): number =>
+      Math.min(1.6, Math.max(0.6, Math.round(input * 20) / 20));
+
+    const setScale = (input: number, save = false) => {
+      const value = clampScale(input);
+      currentValue = value;
+      select.value = value.toFixed(2);
       this.plugin.settings.viewScales = {
         ...this.plugin.settings.viewScales,
         [this.plugin.settings.shelfLayout]: value,
       };
-      valueLabel.setText(`${Math.round(value * 100)}%`);
       this.applyScale();
+      if (this.plugin.settings.shelfLayout === "coverflow") {
+        this.lastRenderSignature = "";
+        this.updateResults();
+      }
+      if (save) {
+        // 只保存数据，不触发视图重建
+        void this.plugin.saveData(this.plugin.settings);
+      }
+    };
+
+    const syncRange = () => {
+      currentValue = this.currentScale();
+      select.value = currentValue.toFixed(2);
+    };
+    syncRange();
+
+    select.addEventListener("change", (event) => {
+      event.stopPropagation();
+      setScale(Number(select.value), true);
     });
-    range.addEventListener("change", () => {
-      // 只保存数据，不触发视图重建
-      void this.plugin.saveData(this.plugin.settings);
+    select.addEventListener("pointerdown", (event) =>
+      event.stopPropagation()
+    );
+
+    minus.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setScale(currentValue - 0.1, true);
+    });
+    plus.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setScale(currentValue + 0.1, true);
     });
 
     sizeBtn.addEventListener("click", (event: MouseEvent) => {
@@ -2783,7 +3092,10 @@ export class AppleBooksShelfView extends ItemView {
       syncRange();
     });
 
-    this.registerDomEvent(document, "click", () => {
+    this.registerDomEvent(document, "click", (event) => {
+      if (event.target instanceof Node && sizeWrap.contains(event.target)) {
+        return;
+      }
       sizeWrap.removeClass("is-open");
     });
 
@@ -2792,20 +3104,36 @@ export class AppleBooksShelfView extends ItemView {
       const syncBtn = syncWrap.createEl("button", {
         cls: "clickable-icon abs-icon-btn abs-sync-main",
         attr: {
-          "aria-label": "同步全部",
-          title: "同步全部（苹果 + 微信）",
+          "aria-label": "选择同步范围",
           type: "button",
         },
       });
+      const scopeLabel = (scope: "all" | "apple" | "weread"): string =>
+        scope === "apple"
+          ? "只同步苹果图书"
+          : scope === "weread"
+            ? "只同步微信读书"
+            : "同步全部（苹果 + 微信）";
+      const applySyncLabel = () => {
+        const scope = this.plugin.settings.syncScope ?? "all";
+        const label =
+          scopeLabel(scope) +
+          (Platform.isMobile && scope !== "weread"
+            ? "（苹果图书由 Mac 执行）"
+            : "");
+        syncBtn.setAttribute("aria-label", label);
+        syncBtn.setAttribute("title", label);
+      };
+      applySyncLabel();
       syncBtn.empty();
       appendMarkup(
         syncBtn,
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 15.5h9.2a3.4 3.4 0 0 0 .3-6.8 5.3 5.3 0 0 0-10.3-1.1 4 4 0 0 0 .8 7.9z"/><path d="M12 8.6v3.6"/><path d="M10.2 10.4l1.8 1.8 1.8-1.8"/></svg><span class="abs-sync-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>`
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 15.5h9.2a3.4 3.4 0 0 0 .3-6.8 5.3 5.3 0 0 0-10.3-1.1 4 4 0 0 0 .8 7.9z"/><path d="M12 8.6v3.6"/><path d="M10.2 10.4l1.8 1.8 1.8-1.8"/></svg><span class="abs-sync-chevron" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>`
       );
       syncBtn.addEventListener("click", (event: MouseEvent) => {
         const target = event.target as HTMLElement;
         if (!target.closest(".abs-sync-chevron")) {
-          void this.runSync("all");
+          void this.runSync(this.plugin.settings.syncScope ?? "all");
           return;
         }
         event.stopPropagation();
@@ -2820,6 +3148,7 @@ export class AppleBooksShelfView extends ItemView {
               .setChecked(this.plugin.settings.syncScope === scope)
               .onClick(async () => {
                 this.plugin.settings.syncScope = scope;
+                applySyncLabel();
                 await this.plugin.saveData(this.plugin.settings);
                 void this.runSync(scope);
               })
@@ -2864,7 +3193,10 @@ export class AppleBooksShelfView extends ItemView {
 
   private async refreshData(): Promise<void> {
     this.rankCache = null;
-    if (this.refreshPromise) return this.refreshPromise;
+    if (this.refreshPromise) {
+      this.refreshQueued = true;
+      return this.refreshPromise;
+    }
     this.refreshPromise = (async () => {
       await this.loadSwipeChoices();
       this.books = await this.collectBooks();
@@ -2872,6 +3204,10 @@ export class AppleBooksShelfView extends ItemView {
       this.updateResults();
     })().finally(() => {
       this.refreshPromise = null;
+      if (this.refreshQueued) {
+        this.refreshQueued = false;
+        void this.refreshData();
+      }
     });
     return this.refreshPromise;
   }
@@ -3015,14 +3351,27 @@ export class AppleBooksShelfView extends ItemView {
   }
 
   private renderStats(): void {
+    const total = this.books.length;
+    const notes = this.books.reduce((sum, book) => sum + book.highlights, 0);
+    const reading = this.books.filter((book) => book.status === "在读").length;
+    const filterMode = this.plugin.settings.shelfFilter || "all";
+    const curatedCount = this.curatedBooks(this.books).length;
+    const signature = [
+      total,
+      notes,
+      reading,
+      filterMode,
+      curatedCount,
+      this.plugin.settings.favoriteSource,
+      this.plugin.settings.favoriteStatuses,
+    ].join("|");
+    if (signature === this.lastStatsSignature) return;
+    this.lastStatsSignature = signature;
+
     this.statsEl.empty();
     this.statsEl.parentElement
       ?.querySelectorAll(".abs-stats-expand")
       .forEach((el) => el.remove());
-
-    const total = this.books.length;
-    const notes = this.books.reduce((sum, book) => sum + book.highlights, 0);
-    const reading = this.books.filter((book) => book.status === "在读").length;
 
     const addStat = (icon: string, text: string) => {
       const item = this.statsEl.createDiv({ cls: "abs-stat" });
@@ -3030,14 +3379,13 @@ export class AppleBooksShelfView extends ItemView {
       item.createSpan({ text });
     };
 
-    const filterMode = this.plugin.settings.shelfFilter || "all";
     addStat(
       "book",
       filterMode === "all"
         ? `${total} 本书`
         : filterMode === "strict"
-          ? `${this.curatedBooks(this.books).length} 本收藏`
-          : `${this.curatedBooks(this.books).length} 本精选`
+          ? `${curatedCount} 本收藏`
+          : `${curatedCount} 本精选`
     );
     addStat("pencil-line", `${notes} 个笔记`);
     addStat("bookmark", `${reading} 本在读`);
@@ -3223,7 +3571,7 @@ export class AppleBooksShelfView extends ItemView {
     const fixed = this.plugin.settings.coverflowBatch || 0;
     if (fixed > 0) return fixed;
     if (!this.coverflowAutoBatch) {
-      this.coverflowAutoBatch = Platform.isMobile ? 12 : 20;
+      this.coverflowAutoBatch = Platform.isPhone ? 12 : 20;
     }
     return this.coverflowAutoBatch;
   }
@@ -3231,7 +3579,7 @@ export class AppleBooksShelfView extends ItemView {
   /** 根据实测首帧调整自动档（8~30） */
   private tuneCoverflowBatch(paintMs: number): void {
     if ((this.plugin.settings.coverflowBatch || 0) > 0) return;
-    const current = this.coverflowAutoBatch || (Platform.isMobile ? 12 : 20);
+    const current = this.coverflowAutoBatch || (Platform.isPhone ? 12 : 20);
     let next = current;
     if (paintMs > 120) next = current - 4;
     else if (paintMs > 80) next = current - 2;
@@ -3433,6 +3781,7 @@ export class AppleBooksShelfView extends ItemView {
     }
   }
 
+
   private updateResults(): void {
     const perfStart = performance.now();
     // 唱片模式重渲染前记住滚动位置，避免刷新后跳回第一本
@@ -3443,15 +3792,29 @@ export class AppleBooksShelfView extends ItemView {
       this.coverflowScroll = this.currentRail.scrollLeft;
     }
     this.deckKeyHandler = null;
-    this.gridEl.empty();
-    this.gridEl.toggleClass("abs-deck", this.plugin.settings.shelfLayout === "deck");
-    this.gridEl.toggleClass("abs-stack", this.plugin.settings.shelfLayout === "stack");
-    this.gridEl.toggleClass("abs-coverflow", this.plugin.settings.shelfLayout === "coverflow");
-    this.gridEl.toggleClass("abs-timeline-mode", this.plugin.settings.shelfLayout === "timeline");
     const books = this.filteredBooks();
+    let layout = this.plugin.settings.shelfLayout;
+    if (Platform.isPhone && !PHONE_LAYOUTS.includes(layout)) {
+      layout = "grid";
+      this.plugin.settings.shelfLayout = "grid";
+      void this.plugin.saveData(this.plugin.settings);
+    }
+    const signature = this.renderSignature(books);
+    if (signature === this.lastRenderSignature) {
+      return;
+    }
+    this.lastRenderSignature = signature;
+    this.coverObserver?.disconnect();
+    this.coverObserver = null;
+    this.coverLoadQueue = [];
+    this.coverLoadActive = 0;
+    this.gridEl.toggleClass("abs-deck", layout === "deck");
+    this.gridEl.toggleClass("abs-stack", layout === "stack");
+    this.gridEl.toggleClass("abs-coverflow", layout === "coverflow");
+    this.gridEl.toggleClass("abs-timeline-mode", layout === "timeline");
+    this.contentEl.toggleClass("is-deck-mode", layout === "deck");
 
     const perfEnd = () => {
-      const layout = this.plugin.settings.shelfLayout;
       this.logPerf(layout, books.length, performance.now() - perfStart);
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
@@ -3462,25 +3825,46 @@ export class AppleBooksShelfView extends ItemView {
       });
     };
 
-    if (this.plugin.settings.shelfLayout === "deck" && books.length > 0) {
-      void this.renderSwipe(books);
+    if (layout === "stack" && books.length > 0) {
+      this.gridEl.empty();
+      try {
+        this.renderStack(books);
+      } catch (error) {
+        this.fallbackToGrid("叠放模式", error);
+      }
       perfEnd();
       return;
     }
 
-    if (this.plugin.settings.shelfLayout === "coverflow" && books.length > 0) {
-      this.renderCoverflow(books);
+    if (layout === "deck" && books.length > 0) {
+      this.gridEl.empty();
+      void this.renderSwipe(books).catch((error) => {
+        this.fallbackToGrid("卡片模式", error);
+      });
       perfEnd();
       return;
     }
 
-    if (this.plugin.settings.shelfLayout === "timeline") {
+    if (layout === "coverflow" && books.length > 0) {
+      this.gridEl.empty();
+      try {
+        this.renderCoverflow(books);
+      } catch (error) {
+        this.fallbackToGrid("唱片模式", error);
+      }
+      perfEnd();
+      return;
+    }
+
+    if (layout === "timeline") {
+      this.gridEl.empty();
       void this.renderTimelineMode();
       perfEnd();
       return;
     }
 
     if (books.length === 0) {
+      this.gridEl.empty();
       this.emptyEl.setCssStyles({ display: "flex" });
       this.emptyEl.empty();
       this.emptyEl.createDiv({ cls: "abs-empty-title", text: "书架上还没有书" });
@@ -3532,16 +3916,94 @@ export class AppleBooksShelfView extends ItemView {
 
     this.emptyEl.setCssStyles({ display: "none" });
 
+    // 先离屏构建，再一次性替换：避免刷新时先清空、再逐张插入造成闪屏。
+    this.coverPrefetchBudget = Platform.isPhone ? 6 : 12;
+    const fragment = document.createDocumentFragment();
     for (const book of books) {
-      this.gridEl.appendChild(this.renderCard(book));
+      fragment.appendChild(this.renderCard(book));
     }
+    this.gridEl.replaceChildren(fragment);
     perfEnd();
+  }
+
+  private fallbackToGrid(label: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack ?? "" : "";
+    console.error(`OmniBooks ${label}`, error);
+    void this.plugin.app.vault.adapter
+      .append(
+        this.plugin.bridgePath("layout-error.log"),
+        `${new Date().toISOString()} ${label}: ${message}\n${stack}\n`
+      )
+      .catch(() => undefined);
+    new Notice(`${label}加载失败，已切回封面墙：${message}`);
+    this.plugin.settings.shelfLayout = "grid";
+    this.lastRenderSignature = "";
+    void this.plugin.saveSettings();
+  }
+
+  private renderSignature(books: Book[]): string {
+    const settings = this.plugin.settings;
+    const scale =
+      settings.viewScales?.[settings.shelfLayout] ??
+      (settings.shelfLayout === "coverflow" ? 1 : 1);
+    const padding = [...this.curatedPadding].sort().join(",");
+    const rows = books.map((book) =>
+      [
+        book.file.path,
+        book.title,
+        book.author,
+        book.cover,
+        book.status,
+        book.progress,
+        book.rating,
+        book.highlights,
+        book.words,
+        book.lastRead,
+      ].join("\u0001")
+    );
+    return [
+      settings.shelfLayout,
+      settings.showTitles ? 1 : 0,
+      settings.coverMode,
+      settings.straightenCovers ? 1 : 0,
+      settings.shelfFilter,
+      settings.favoriteSource,
+      settings.favoriteStatuses,
+      this.query,
+      this.statusFilter,
+      this.curationFilter,
+      this.sourceFilter,
+      this.sort,
+      scale,
+      this.coverflowLimit,
+      this.deckBatchDone,
+      settings.deckRoundStart,
+      Object.entries(this.swipeChoices ?? {})
+        .map(([path, entry]) => `${path}:${entry.choice}:${entry.ts}`)
+        .sort()
+        .join(","),
+      padding,
+      ...rows,
+    ].join("\u0002");
   }
 
   private coverThumbs = new Map<string, string>();
   private coverThumbQueue: string[] = [];
   private coverThumbPending = new Set<string>();
   private coverThumbActive = 0;
+  private coverLoadQueue: Array<{
+    img: HTMLImageElement;
+    url: string;
+    attempts: number;
+  }> = [];
+  private coverLoadActive = 0;
+  private coverObserver: IntersectionObserver | null = null;
+  private coverFileIndex: Map<string, TFile> | null = null;
+  private coverUrlToFile = new Map<string, TFile>();
+  private coverBlobCache = new Map<string, string>();
+  private coverBlobPending = new Map<string, Promise<string | null>>();
+  private coverPrefetchBudget = 0;
 
   private straightCache = new Map<string, string>();
   private straightFailed = new Set<string>();
@@ -3628,6 +4090,7 @@ export class AppleBooksShelfView extends ItemView {
         if (value) this.plugin.settings.coverAdjust[key] = value;
         else delete this.plugin.settings.coverAdjust[key];
         await this.plugin.saveSettings();
+        this.lastRenderSignature = "";
         this.updateResults();
       },
     }).open();
@@ -3689,7 +4152,9 @@ export class AppleBooksShelfView extends ItemView {
       } else {
         img.addClass("is-cover-fill");
       }
-      this.queueStraighten(img, src, this.resolveCoverFile(rawCover, source));
+      if (!/^https?:\/\//i.test(src)) {
+        this.queueStraighten(img, src, this.resolveCoverFile(rawCover, source));
+      }
     });
   }
 
@@ -3837,19 +4302,14 @@ export class AppleBooksShelfView extends ItemView {
 
     const cover = card.createDiv({ cls: "abs-cover" });
     const coverUrl = this.resolveCover(book.cover, book.file);
+    this.prefetchCover(coverUrl ?? "");
+    this.renderCoverFallback(cover, book.title);
 
     if (coverUrl) {
       const img = cover.createEl("img", { cls: "abs-cover-img" });
       this.handleCover(img, coverUrl, book.cover, book.file);
-      img.src = coverUrl;
       img.alt = book.title;
-      img.loading = "lazy";
-      img.addEventListener("error", () => {
-        img.remove();
-        this.renderCoverFallback(cover, book.title);
-      });
-    } else {
-      this.renderCoverFallback(cover, book.title);
+      this.observeCoverImage(img, coverUrl);
     }
 
     const adjustBtn = cover.createDiv({
@@ -3908,28 +4368,412 @@ export class AppleBooksShelfView extends ItemView {
     fallback.createDiv({ cls: "abs-cover-title", text: title });
   }
 
-  private resolveCover(raw: string, source: TFile | null): string | null {
-    const value = raw.trim();
-    if (!value) return null;
+  private coverLoaderLimit(): number {
+    return Platform.isPhone ? 6 : 12;
+  }
 
-    if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
+  private observeCoverImage(img: HTMLImageElement, url: string): void {
+    img.dataset.coverSrc = url;
+    img.loading = "eager";
+    img.decoding = "async";
+    img.referrerPolicy = "no-referrer";
+    if (typeof IntersectionObserver === "undefined") {
+      window.requestAnimationFrame(() => {
+        if (img.isConnected) this.queueCoverImage(img, url);
+      });
+      return;
+    }
+    if (!this.coverObserver) {
+      this.coverObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            const el = entry.target as HTMLImageElement;
+            this.coverObserver?.unobserve(el);
+            const src = el.dataset.coverSrc;
+            if (src && !el.src) this.queueCoverImage(el, src);
+          }
+        },
+        { root: this.contentEl, rootMargin: "500px 0px" }
+      );
+    }
+    this.coverObserver.observe(img);
+  }
 
-    const cleaned = stripLink(value);
-    if (!cleaned) return null;
+  private prefetchCover(coverUrl: string): void {
+    if (this.coverPrefetchBudget <= 0) return;
+    const file = this.coverUrlToFile.get(coverUrl);
+    if (!file) return;
+    this.coverPrefetchBudget -= 1;
+    void this.readCoverBlob(file);
+  }
 
-    const target =
-      this.app.metadataCache.getFirstLinkpathDest(cleaned, source?.path ?? "") ??
-      this.app.vault.getAbstractFileByPath(normalizePath(cleaned));
+  private queueCoverImage(img: HTMLImageElement, url: string): void {
+    if (img.dataset.coverQueued === "1") return;
+    img.dataset.coverQueued = "1";
+    this.coverLoadQueue.push({ img, url, attempts: 0 });
+    this.pumpCoverImages();
+  }
 
-    if (target instanceof TFile) {
+  private pumpCoverImages(): void {
+    const limit = this.coverLoaderLimit();
+    while (this.coverLoadActive < limit && this.coverLoadQueue.length > 0) {
+      const job = this.coverLoadQueue.shift();
+      if (!job) break;
+      if (!job.img.isConnected) continue;
+      this.coverLoadActive += 1;
+      void this.runCoverJob(job);
+    }
+  }
+
+  private async runCoverJob(job: {
+    img: HTMLImageElement;
+    url: string;
+    attempts: number;
+  }): Promise<void> {
+    const { img, url } = job;
+    let settled = false;
+    let watchdog = 0;
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (watchdog) window.clearTimeout(watchdog);
+      img.removeEventListener("load", onLoad);
+      img.removeEventListener("error", onError);
+      this.coverLoadActive = Math.max(0, this.coverLoadActive - 1);
+      this.pumpCoverImages();
+    };
+
+    const onLoad = () => {
+      img.addClass("is-cover-visible");
+      finish();
+    };
+
+    const onError = () => {
+      if (!img.isConnected) {
+        finish();
+        return;
+      }
+      if (job.attempts < 2) {
+        job.attempts += 1;
+        window.setTimeout(() => {
+          if (!img.isConnected) {
+            finish();
+            return;
+          }
+          img.removeAttribute("src");
+          img.src = url;
+        }, 350 * job.attempts);
+        return;
+      }
+      img.remove();
+      finish();
+    };
+
+    img.addEventListener("load", onLoad);
+    img.addEventListener("error", onError);
+    watchdog = window.setTimeout(() => {
+      if (settled) return;
+      if (img.isConnected) img.remove();
+      finish();
+    }, 20000);
+
+    // iCloud 里的本地封面用 app:// 偶尔会一直不返回；直接读文件再 blob，成功率更高。
+    const file = this.coverUrlToFile.get(url);
+    if (url.startsWith("app://") && file) {
+      const cached = await this.readCoverBlob(file);
+      if (settled) return;
+      if (!img.isConnected) {
+        finish();
+        return;
+      }
+      img.src = cached ?? url;
+      return;
+    }
+
+    img.src = url;
+  }
+
+  private async readCoverBlob(file: TFile): Promise<string | null> {
+    const cached = this.coverBlobCache.get(file.path);
+    if (cached) return cached;
+    const pending = this.coverBlobPending.get(file.path);
+    if (pending) return pending;
+
+    const task = (async () => {
       try {
-        return this.app.vault.adapter.getResourcePath(target.path);
+        const buffer = await this.app.vault.readBinary(file);
+        if (!this.containerEl.isConnected) return null;
+        const url = URL.createObjectURL(
+          new Blob([buffer], { type: this.coverMime(file.extension) })
+        );
+        this.cacheCoverBlob(file.path, url);
+        return url;
       } catch {
         return null;
       }
+    })();
+    this.coverBlobPending.set(file.path, task);
+    try {
+      return await task;
+    } finally {
+      this.coverBlobPending.delete(file.path);
+    }
+  }
+
+  private cacheCoverBlob(path: string, url: string): void {
+    const old = this.coverBlobCache.get(path);
+    if (old) URL.revokeObjectURL(old);
+    this.coverBlobCache.set(path, url);
+    while (this.coverBlobCache.size > 120) {
+      const first = this.coverBlobCache.entries().next().value as
+        | [string, string]
+        | undefined;
+      if (!first) break;
+      this.coverBlobCache.delete(first[0]);
+      URL.revokeObjectURL(first[1]);
+    }
+  }
+
+  private invalidateCoverBlob(path: string): void {
+    const url = this.coverBlobCache.get(path);
+    if (!url) return;
+    this.coverBlobCache.delete(path);
+    URL.revokeObjectURL(url);
+  }
+
+  private coverDirPath(): string {
+    const custom = normalizePath(this.plugin.settings.coverDir || "");
+    if (custom) return custom;
+    const books = normalizePath(
+      this.plugin.settings.booksOutputDir || "OmniBooks/苹果图书"
+    );
+    return `${books}/assets/covers`;
+  }
+
+  private coverFileByName(name: string): TFile | null {
+    const key = name.trim().toLowerCase();
+    if (!key) return null;
+    if (!this.coverFileIndex) {
+      this.coverFileIndex = new Map();
+      for (const file of this.app.vault.getFiles()) {
+        if (!/\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(file.name)) continue;
+        const fileKey = file.name.toLowerCase();
+        if (!this.coverFileIndex.has(fileKey)) {
+          this.coverFileIndex.set(fileKey, file);
+        }
+      }
+    }
+    return this.coverFileIndex.get(key) ?? null;
+  }
+
+  private coverPathToUrl(file: TFile | null): string | null {
+    if (!file) return null;
+    try {
+      return this.app.vault.adapter.getResourcePath(file.path);
+    } catch {
+      return null;
+    }
+  }
+
+  private coverFileToUrl(file: TFile | null): string | null {
+    if (!file) return null;
+    const url = this.coverPathToUrl(file);
+    if (url) this.coverUrlToFile.set(url, file);
+    return url;
+  }
+
+  private coverMime(ext: string): string {
+    const value = ext.toLowerCase();
+    if (value === "png") return "image/png";
+    if (value === "webp") return "image/webp";
+    if (value === "gif") return "image/gif";
+    if (value === "avif") return "image/avif";
+    if (value === "bmp") return "image/bmp";
+    return "image/jpeg";
+  }
+
+  private frontmatterOf(file: TFile | null): Record<string, unknown> | null {
+    if (!file) return null;
+    const cache = this.app.metadataCache.getFileCache(file);
+    return (cache?.frontmatter as Record<string, unknown> | undefined) ?? null;
+  }
+
+  private findCoverFile(raw: string, source: TFile | null): TFile | null {
+    let value = stripLink(raw).trim();
+    if (!value) return null;
+    const markdownImage = /^!?\[[^\]]*\]\(([^)]+)\)$/.exec(value);
+    if (markdownImage) {
+      value = markdownImage[1].trim().replace(/^<|>$/g, "");
+    }
+    if (/^file:\/\//i.test(value)) {
+      try {
+        value = decodeURIComponent(value.replace(/^file:\/\//i, ""));
+      } catch {
+        value = value.replace(/^file:\/\//i, "");
+      }
+    }
+    value = value.split("#")[0].split("?")[0].replace(/\\/g, "/");
+    const variants = new Set<string>();
+    const add = (candidate: string) => {
+      const trimmed = candidate.trim();
+      if (trimmed) variants.add(trimmed);
+    };
+    add(value);
+    try {
+      add(decodeURIComponent(value));
+    } catch {
+      /* 保持原样 */
+    }
+    add(value.replace(/^\.\//, ""));
+    add(value.replace(/^\/+/, ""));
+    if (/^[A-Za-z]:\//.test(value) || value.startsWith("/")) {
+      add(value.split("/").pop() ?? "");
+    }
+
+    for (const candidate of variants) {
+      const dest = this.app.metadataCache.getFirstLinkpathDest(
+        candidate,
+        source?.path ?? ""
+      );
+      if (dest instanceof TFile) return dest;
+
+      const direct = this.app.vault.getAbstractFileByPath(
+        normalizePath(candidate)
+      );
+      if (direct instanceof TFile) return direct;
+
+      if (source?.parent) {
+        const sibling = this.app.vault.getAbstractFileByPath(
+          normalizePath(`${source.parent.path}/${candidate}`)
+        );
+        if (sibling instanceof TFile) return sibling;
+      }
+    }
+
+    const base = (value.split("/").pop() ?? "").trim();
+    if (base) {
+      const byName = this.coverFileByName(base);
+      if (byName) return byName;
+      try {
+        const decoded = decodeURIComponent(base);
+        if (decoded !== base) {
+          const byDecoded = this.coverFileByName(decoded);
+          if (byDecoded) return byDecoded;
+        }
+      } catch {
+        /* 保持原样 */
+      }
+    }
+
+    const coverDir = this.coverDirPath();
+    if (base) {
+      const direct = this.app.vault.getAbstractFileByPath(
+        normalizePath(`${coverDir}/${base}`)
+      );
+      if (direct instanceof TFile) return direct;
+    }
+
+    const fm = this.frontmatterOf(source);
+    const assetId = String(fm?.bookId ?? "").trim();
+    const openUrl = String(fm?.open_url ?? "");
+    const appleId = assetId || /assetid\/([A-Za-z0-9]+)/i.exec(openUrl)?.[1] || "";
+    if (appleId) {
+      const hit = this.app.vault
+        .getFiles()
+        .find(
+          (file) =>
+            file.path.startsWith(`${coverDir}/`) &&
+            file.basename.toLowerCase() === appleId.toLowerCase()
+        );
+      if (hit) return hit;
     }
 
     return null;
+  }
+
+  private resolveSiblingCover(source: TFile | null): TFile | null {
+    if (!source) return null;
+    const folder = source.parent?.path ?? "";
+    const stem = source.basename;
+    const names = [
+      `${stem}.jpg`,
+      `${stem}.jpeg`,
+      `${stem}.png`,
+      `${stem}.webp`,
+      "cover.jpg",
+      "cover.jpeg",
+      "cover.png",
+      "cover.webp",
+    ];
+    for (const name of names) {
+      const file = this.app.vault.getAbstractFileByPath(
+        normalizePath(`${folder}/${name}`)
+      );
+      if (file instanceof TFile) return file;
+    }
+
+    const fm = this.frontmatterOf(source);
+    const assetId = String(fm?.bookId ?? "").trim();
+    const openUrl = String(fm?.open_url ?? "");
+    const id = assetId || /assetid\/([A-Za-z0-9]+)/i.exec(openUrl)?.[1] || "";
+    if (!id) return null;
+    const coverDir = this.coverDirPath();
+    return (
+      this.app.vault
+        .getFiles()
+        .find(
+          (file) =>
+            file.path.startsWith(`${coverDir}/`) &&
+            file.basename.toLowerCase() === id.toLowerCase()
+        ) ?? null
+    );
+  }
+
+  private resolveCover(raw: string, source: TFile | null): string | null {
+    const value = raw.trim();
+    if (!value) return this.coverFileToUrl(this.resolveSiblingCover(source));
+    if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
+    const file = this.findCoverFile(value, source);
+    const url = this.coverFileToUrl(file);
+    if (url) return url;
+    return this.coverFileToUrl(this.resolveSiblingCover(source));
+  }
+
+  /** 其他布局的封面：本地封面走 blob，失败自动重试两次。 */
+  private setImageSource(img: HTMLImageElement, url: string, attempt = 0): void {
+    img.loading = "eager";
+    img.decoding = "async";
+    img.referrerPolicy = "no-referrer";
+
+    const apply = (src: string) => {
+      img.onload = null;
+      img.onerror = () => {
+        if (attempt < 2) {
+          window.setTimeout(() => {
+            if (img.isConnected) this.setImageSource(img, url, attempt + 1);
+          }, 350 * (attempt + 1));
+          return;
+        }
+        img.onerror = null;
+        img.addClass("is-cover-failed");
+      };
+      img.src = src;
+    };
+
+    const file = this.coverUrlToFile.get(url);
+    if (url.startsWith("app://") && file) {
+      void this.readCoverBlob(file)
+        .then((cached) => {
+          if (!img.isConnected) return;
+          apply(cached ?? url);
+        })
+        .catch(() => apply(url));
+      return;
+    }
+
+    apply(url);
   }
 
   private swipeChoices: Record<
@@ -3941,6 +4785,9 @@ export class AppleBooksShelfView extends ItemView {
   private coverflowAutoBatch = 0;
   private coverflowAppending = false;
   private coverflowScroll = 0;
+  private coverflowObserver: ResizeObserver | null = null;
+  private timelineResizeObserver: ResizeObserver | null = null;
+  private deckScrollLocked = false;
   private curatedPadding = new Set<string>();
   private currentRail: HTMLElement | null = null;
   private sourceSelectEl: HTMLSelectElement | null = null;
@@ -4106,7 +4953,33 @@ export class AppleBooksShelfView extends ItemView {
     });
   }
 
+  private lockDeckScroll(): void {
+    if (this.deckScrollLocked) return;
+    this.deckScrollLocked = true;
+    this.contentEl.classList.add("omnibooks-deck-lock");
+    let el: HTMLElement | null = this.contentEl.parentElement;
+    while (el) {
+      const style = getComputedStyle(el);
+      if (
+        /(auto|scroll)/.test(`${style.overflowX} ${style.overflowY}`)
+      ) {
+        el.classList.add("omnibooks-deck-lock");
+      }
+      el = el.parentElement;
+    }
+    document.body.classList.add("omnibooks-deck-lock");
+  }
+
+  private unlockDeckScroll(): void {
+    if (!this.deckScrollLocked) return;
+    this.deckScrollLocked = false;
+    document
+      .querySelectorAll(".omnibooks-deck-lock")
+      .forEach((el) => el.classList.remove("omnibooks-deck-lock"));
+  }
+
   private async renderSwipe(books: Book[]): Promise<void> {
+    this.unlockDeckScroll();
     const choices = await this.loadSwipeChoices();
     const round = this.plugin.settings.deckRoundStart || 0;
     const stack = books.filter((book) => {
@@ -4140,7 +5013,7 @@ export class AppleBooksShelfView extends ItemView {
       if (peekCover) {
         const img = peek.createEl("img", { cls: "abs-swipe-cover" });
         this.handleCover(img, peekCover, next.cover, next.file);
-        img.src = peekCover;
+        this.setImageSource(img, peekCover);
         img.alt = next.title;
         img.loading = "lazy";
       }
@@ -4150,7 +5023,7 @@ export class AppleBooksShelfView extends ItemView {
     const coverUrl = this.resolveCover(top.cover, top.file);
     if (coverUrl) {
       const img = card.createEl("img", { cls: "abs-swipe-cover" });
-      img.src = coverUrl;
+      this.setImageSource(img, coverUrl);
       img.alt = top.title;
     } else {
       const fallback = card.createDiv({ cls: "abs-swipe-fallback" });
@@ -4173,7 +5046,9 @@ export class AppleBooksShelfView extends ItemView {
     if (top.author) meta.createDiv({ cls: "abs-swipe-author", text: top.author });
     container.createDiv({
       cls: "abs-swipe-hint",
-      text: `左滑搁置 · 右滑收藏 · ← → 方向键　${stack.length} 本待选`,
+      text: Platform.isMobile
+        ? `左滑搁置 · 右滑收藏 · 点击阅读　${stack.length} 本待选`
+        : `左滑搁置 · 右滑收藏 · 点击阅读 · ← → 方向键　${stack.length} 本待选`,
     });
 
     let startX = 0;
@@ -4201,21 +5076,32 @@ export class AppleBooksShelfView extends ItemView {
       await this.saveSwipeChoice(top.file.path, choice);
       await this.writeNoteStatus(top, choice === "liked" ? "想看" : "待看");
       this.deckBatchDone += 1;
+      this.lastRenderSignature = "";
       window.setTimeout(() => this.updateResults(), 260);
     };
 
-    card.addEventListener("pointerdown", (event: PointerEvent) => {
+    const gestureSurface = container;
+    gestureSurface.addEventListener("pointerdown", (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.lockDeckScroll();
       dragging = true;
       startX = event.clientX;
       startY = event.clientY;
       startTime = Date.now();
       dx = 0;
       card.addClass("is-dragging");
-      card.setPointerCapture(event.pointerId);
+      try {
+        gestureSurface.setPointerCapture(event.pointerId);
+      } catch {
+        /* 部分手机 WebView 不支持指针捕获，仍然可以拖动 */
+      }
     });
 
-    card.addEventListener("pointermove", (event: PointerEvent) => {
+    gestureSurface.addEventListener("pointermove", (event: PointerEvent) => {
       if (!dragging) return;
+      event.preventDefault();
+      event.stopPropagation();
       dx = event.clientX - startX;
       const dy = event.clientY - startY;
       if (Math.abs(dx) < Math.abs(dy) && Math.abs(dx) < 8) return;
@@ -4236,12 +5122,17 @@ export class AppleBooksShelfView extends ItemView {
       }
     });
 
-    const endDrag = () => {
+    const endDrag = (cancelled: boolean) => {
       if (!dragging) return;
       dragging = false;
       card.removeClass("is-dragging");
       const elapsed = Math.max(1, Date.now() - startTime);
       const velocity = Math.abs(dx) / elapsed;
+
+      if (!cancelled && Math.abs(dx) < 8 && elapsed < 600) {
+        this.openBook(top);
+        return;
+      }
 
       if (dx > 70 || (velocity > 0.55 && dx > 28)) {
         void finish("liked");
@@ -4254,8 +5145,45 @@ export class AppleBooksShelfView extends ItemView {
       reset();
     };
 
-    card.addEventListener("pointerup", endDrag);
-    card.addEventListener("pointercancel", endDrag);
+    gestureSurface.addEventListener("pointerup", (event: PointerEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.unlockDeckScroll();
+      endDrag(false);
+    });
+    gestureSurface.addEventListener("pointercancel", (event: PointerEvent) => {
+      event.stopPropagation();
+      this.unlockDeckScroll();
+      endDrag(true);
+    });
+    gestureSurface.addEventListener("dragstart", (event) => event.preventDefault());
+    gestureSurface.addEventListener(
+      "touchstart",
+      (event: TouchEvent) => {
+        if (event.touches.length === 1) {
+          this.lockDeckScroll();
+          event.preventDefault();
+        }
+      },
+      { passive: false }
+    );
+    gestureSurface.addEventListener(
+      "touchend",
+      () => this.unlockDeckScroll(),
+      { passive: true }
+    );
+    gestureSurface.addEventListener(
+      "touchcancel",
+      () => this.unlockDeckScroll(),
+      { passive: true }
+    );
+    gestureSurface.addEventListener(
+      "touchmove",
+      (event: TouchEvent) => {
+        if (dragging) event.preventDefault();
+      },
+      { passive: false }
+    );
     card.addEventListener("keydown", (event: KeyboardEvent) => {
       if (event.key === "ArrowRight") void finish("liked");
       if (event.key === "ArrowLeft") void finish("shelved");
@@ -4265,7 +5193,31 @@ export class AppleBooksShelfView extends ItemView {
   }
 
   private async renderTimelineMode(): Promise<void> {
+    this.timelineResizeObserver?.disconnect();
+    this.timelineResizeObserver = null;
     const wrap = this.gridEl.createDiv({ cls: "abs-tl-mode" });
+
+    const applyTimelineHeight = () => {
+      if (!wrap.isConnected) return;
+      const contentRect = this.contentEl.getBoundingClientRect();
+      const wrapRect = wrap.getBoundingClientRect();
+      const topOffset = Math.max(0, wrapRect.top - contentRect.top);
+      const contentAvailable = this.contentEl.clientHeight - topOffset - 16;
+      const viewportAvailable = window.innerHeight - wrapRect.top - 32;
+      const available = Math.max(
+        320,
+        Math.min(contentAvailable, viewportAvailable)
+      );
+      wrap.setCssStyles({ height: `${available}px` });
+    };
+    applyTimelineHeight();
+    if (typeof ResizeObserver !== "undefined") {
+      this.timelineResizeObserver = new ResizeObserver(() => {
+        applyTimelineHeight();
+      });
+      this.timelineResizeObserver.observe(this.contentEl);
+    }
+
     wrap.createDiv({ cls: "abs-tl-mode-loading", text: "整理时间线…" });
 
     const events = await computeTimeline(this.app, [
@@ -4283,8 +5235,9 @@ export class AppleBooksShelfView extends ItemView {
     }
 
     const autoHorizontal = window.innerWidth >= window.innerHeight;
-    const orientation =
-      this.plugin.settings.timelineOrientation === "auto"
+    const orientation = Platform.isPhone
+      ? "vertical"
+      : this.plugin.settings.timelineOrientation === "auto"
         ? autoHorizontal
           ? "horizontal"
           : "vertical"
@@ -4296,38 +5249,40 @@ export class AppleBooksShelfView extends ItemView {
       "--tl-scale": String(this.plugin.settings.timelineScale || 1),
     });
     const controls = wrap.createDiv({ cls: "abs-tl-controls" });
-    const orientationLabel =
-      this.plugin.settings.timelineOrientation === "auto"
-        ? "自动"
-        : this.plugin.settings.timelineOrientation === "horizontal"
-          ? "横向"
-          : "纵向";
     const sortLabel = this.plugin.settings.timelineSort === "oldest" ? "最初" : "最近";
 
-    const dirBtn = controls.createEl("button", {
-      cls: "abs-tl-control",
-      text: `方向：${orientationLabel}`,
-    });
-    dirBtn.addEventListener("click", (event: MouseEvent) => {
-      const menu = new Menu();
-      for (const [value, label] of [
-        ["auto", "自动"],
-        ["horizontal", "横向"],
-        ["vertical", "纵向"],
-      ] as const) {
-        menu.addItem((item) =>
-          item
-            .setTitle(label)
-            .setChecked(this.plugin.settings.timelineOrientation === value)
-            .onClick(async () => {
-              this.plugin.settings.timelineOrientation = value;
-              await this.plugin.saveData(this.plugin.settings);
-              this.updateResults();
-            })
-        );
-      }
-      menu.showAtMouseEvent(event);
-    });
+    if (!Platform.isPhone) {
+      const orientationLabel =
+        this.plugin.settings.timelineOrientation === "auto"
+          ? "自动"
+          : this.plugin.settings.timelineOrientation === "horizontal"
+            ? "横向"
+            : "纵向";
+      const dirBtn = controls.createEl("button", {
+        cls: "abs-tl-control",
+        text: `方向：${orientationLabel}`,
+      });
+      dirBtn.addEventListener("click", (event: MouseEvent) => {
+        const menu = new Menu();
+        for (const [value, label] of [
+          ["auto", "自动"],
+          ["horizontal", "横向"],
+          ["vertical", "纵向"],
+        ] as const) {
+          menu.addItem((item) =>
+            item
+              .setTitle(label)
+              .setChecked(this.plugin.settings.timelineOrientation === value)
+              .onClick(async () => {
+                this.plugin.settings.timelineOrientation = value;
+                await this.plugin.saveData(this.plugin.settings);
+                this.updateResults();
+              })
+          );
+        }
+        menu.showAtMouseEvent(event);
+      });
+    }
 
     const sortBtn = controls.createEl("button", {
       cls: "abs-tl-control",
@@ -4491,7 +5446,7 @@ export class AppleBooksShelfView extends ItemView {
         if (coverUrl) {
           // 缩略图不需要封面显示方式/拉正，避免 is-cover-stretch 把 30px 缩略图撑满卡片
           const img = card.createEl("img", { cls: "abs-tl-cover" });
-          img.src = coverUrl;
+          this.setImageSource(img, coverUrl);
           img.alt = event.title;
           img.loading = "lazy";
         }
@@ -4561,7 +5516,7 @@ export class AppleBooksShelfView extends ItemView {
       const coverUrl = this.resolveCover(event.cover, null);
       if (coverUrl) {
         const img = item.createEl("img", { cls: "abs-htl-cover" });
-        img.src = coverUrl;
+        this.setImageSource(img, coverUrl);
         img.alt = event.title;
         img.loading = "lazy";
       } else {
@@ -4621,6 +5576,9 @@ export class AppleBooksShelfView extends ItemView {
   }
 
   private renderCoverflow(books: Book[]): void {
+    this.coverflowObserver?.disconnect();
+    this.coverflowObserver = null;
+    this.coverPrefetchBudget = Platform.isPhone ? 6 : 12;
     const info = this.gridEl.createDiv({ cls: "abs-cf-info" });
     const head = info.createDiv({ cls: "abs-cf-head" });
     const titleEl = head.createDiv({ cls: "abs-cf-title" });
@@ -4653,24 +5611,14 @@ export class AppleBooksShelfView extends ItemView {
         card.createDiv({ cls: "abs-cf-pad-badge", text: "最近" });
       }
       const coverUrl = this.resolveCover(book.cover, book.file);
+      this.prefetchCover(coverUrl ?? "");
+      const fallback = card.createDiv({ cls: "abs-cf-fallback" });
+      fallback.setCssStyles({ background: gradientFor(book.title) });
+      fallback.createDiv({ cls: "abs-cf-fallback-title", text: book.title });
       if (coverUrl) {
         const img = card.createEl("img", { cls: "abs-cf-img" });
-        const thumb = this.coverThumb(coverUrl);
-        img.dataset.thumb = coverUrl;
-        img.src = thumb ?? coverUrl;
         img.alt = book.title;
-        img.loading = "lazy";
-        img.decoding = "async";
-        img.addEventListener("error", () => {
-          img.remove();
-          const fallback = card.createDiv({ cls: "abs-cf-fallback" });
-          fallback.setCssStyles({ background: gradientFor(book.title) });
-          fallback.createDiv({ cls: "abs-cf-fallback-title", text: book.title });
-        });
-      } else {
-        const fallback = card.createDiv({ cls: "abs-cf-fallback" });
-        fallback.setCssStyles({ background: gradientFor(book.title) });
-        fallback.createDiv({ cls: "abs-cf-fallback-title", text: book.title });
+        this.observeCoverImage(img, coverUrl);
       }
       card.addEventListener("click", () => {
         if (card.hasClass("is-active")) this.openBook(book);
@@ -4769,12 +5717,14 @@ export class AppleBooksShelfView extends ItemView {
     const update = () => {
       if (frame) cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
+        if (rail.clientWidth <= 0) return;
         const center = rail.scrollLeft + rail.clientWidth / 2;
         let best = 0;
         let bestDistance = Number.POSITIVE_INFINITY;
         const farLimit = rail.clientWidth * 1.15;
         // 只处理屏幕附近这一圈，屏幕外的卡片直接隐藏，减少 3D 图层数量
-        const hideLimit = rail.clientWidth * 0.62;
+        const hideLimit =
+          rail.clientWidth * (Platform.isPhone ? 1.2 : 0.62);
 
         cards.forEach((card, index) => {
           const offset = (centers[index] ?? 0) - center;
@@ -4839,6 +5789,23 @@ export class AppleBooksShelfView extends ItemView {
       update();
     }, 0);
     window.setTimeout(update, 0);
+    // 手机端视图动画结束后再量一次；避免首次 clientWidth 为 0 导致卡片被判定在屏幕外。
+    window.setTimeout(() => {
+      recomputeCenters();
+      if (rail.scrollLeft <= 1 && cards[0]) {
+        rail.scrollLeft =
+          cards[0].offsetLeft - (rail.clientWidth - cards[0].offsetWidth) / 2;
+      }
+      update();
+    }, 160);
+
+    if (typeof ResizeObserver !== "undefined") {
+      this.coverflowObserver = new ResizeObserver(() => {
+        recomputeCenters();
+        update();
+      });
+      this.coverflowObserver.observe(rail);
+    }
   }
 
   private async loadCardQuote(book: Book, el: HTMLElement): Promise<void> {
@@ -4913,7 +5880,7 @@ export class AppleBooksShelfView extends ItemView {
       if (coverUrl) {
         const img = cover.createEl("img", { cls: "abs-stack-img" });
         this.handleCover(img, coverUrl, book.cover, book.file);
-        img.src = coverUrl;
+        this.setImageSource(img, coverUrl);
         img.alt = book.title;
         img.loading = "lazy";
       } else {
@@ -5036,8 +6003,10 @@ export class AppleBooksShelfView extends ItemView {
   private currentScale(): number {
     const saved = this.plugin.settings.viewScales?.[this.plugin.settings.shelfLayout];
     if (typeof saved === "number") return saved;
-    // 唱片模式默认 100%，其他布局默认 80%
-    return this.plugin.settings.shelfLayout === "coverflow" ? 1 : 0.8;
+    // 唱片模式默认 100%；iPad 封面墙默认 100%，其他布局默认 80%
+    if (this.plugin.settings.shelfLayout === "coverflow") return 1;
+    if (Platform.isTablet) return 1;
+    return 0.8;
   }
 
   private applyScale(): void {
@@ -5341,11 +6310,23 @@ export class AppleBooksShelfView extends ItemView {
 
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     await adapter.write(requestPath, JSON.stringify({ id, ts: Date.now(), device: "mobile" }));
-    new Notice("已发送更新请求，等待 Mac 处理…");
+    new Notice(
+      "已发送苹果图书更新请求；Mac 运行时会自动处理。微信读书同步不需要等待这一步。",
+      7000
+    );
 
-    const deadline = Date.now() + 240_000;
+    const started = Date.now();
+    let warned = false;
+    const deadline = started + 240_000;
     while (Date.now() < deadline) {
       await wait(2000);
+      if (!warned && Date.now() - started > 20_000) {
+        warned = true;
+        new Notice(
+          "Mac 还没有响应。请确认 Mac 上的 Obsidian 正在运行；请求会保留，稍后运行也会处理。",
+          8000
+        );
+      }
       if (!(await adapter.exists(statusPath))) continue;
 
       try {
@@ -5356,7 +6337,12 @@ export class AppleBooksShelfView extends ItemView {
         };
         if (status.id !== id) continue;
 
-        new Notice(status.ok ? "苹果图书已更新" : `更新失败：${status.message ?? "未知错误"}`);
+        new Notice(
+          status.ok
+            ? "苹果图书已更新"
+            : `苹果图书更新失败：${status.message ?? "未知错误"}`,
+          status.ok ? 4000 : 10000
+        );
         if (status.ok) void this.refreshData();
         return;
       } catch {
@@ -5364,7 +6350,10 @@ export class AppleBooksShelfView extends ItemView {
       }
     }
 
-    new Notice("Mac 没有响应。请确认 Mac 上的 Obsidian 正在运行。");
+    new Notice(
+      "苹果图书更新未完成：Mac 没有响应。请确认 Mac 上的 Obsidian 正在运行，并已授予完全磁盘访问权限。",
+      12000
+    );
   }
 }
 
@@ -5420,7 +6409,11 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("安装向导")
-      .setDesc("重新选择书源、填写微信读书 Key、检查苹果图书权限。不会改动已有笔记。")
+      .setDesc(
+        this.plugin.settings.setupPending
+          ? "还有书源未设置完成；点「重新打开」继续。不会改动已有笔记。"
+          : "重新选择书源、填写微信读书 Key、检查苹果图书权限。不会改动已有笔记。"
+      )
       .addButton((button) =>
         button.setButtonText("重新打开").onClick(() => this.plugin.openSetupWizard())
       );
@@ -5867,7 +6860,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
-        "填好 API Key 就能用。只发送书名、作者、标签，不上传笔记正文。",
+        "Key 每台设备填一次即可，之后会自动使用。只发送书名、作者、标签，不上传笔记正文。",
     });
 
     new Setting(containerEl)
@@ -5883,16 +6876,30 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           })
       );
 
+    let aiKeySaveTimer: number | null = null;
     new Setting(containerEl)
       .setName("API Key")
-      .setDesc("只保存在本地 vault 设置里。")
+      .setDesc(
+        "每台设备第一次使用时填一次，之后打开会自动使用。Key 只留在这台设备，换设备需要重新填写。"
+      )
       .addText((text) =>
         text
           .setPlaceholder("sk-...")
           .setValue(this.plugin.settings.aiApiKey)
           .onChange(async (value) => {
-            this.plugin.settings.aiApiKey = value.trim();
+            const key = value.trim();
+            this.plugin.settings.aiApiKey = key;
             await this.plugin.saveSettings();
+            if (aiKeySaveTimer !== null) window.clearTimeout(aiKeySaveTimer);
+            aiKeySaveTimer = window.setTimeout(() => {
+              aiKeySaveTimer = null;
+              new Notice(
+                key
+                  ? "已保存。Key 只留在这台设备，换设备需要重新填写。"
+                  : "已清除 API Key。之后需要重新填写才能使用 AI 阅析。",
+                6000
+              );
+            }, 1200);
           })
       )
       .addButton((button) =>
@@ -6012,7 +7019,9 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("API Key")
-      .setDesc("扫码获取后粘贴到这里；也可以直接从已安装的 Weread 插件导入。")
+      .setDesc(
+        "扫码获取后粘贴到这里；也可以直接从已安装的 Weread 插件导入。每台设备第一次使用时填一次，之后自动使用；Key 只保存在当前设备的插件设置里。"
+      )
       .addText((text) =>
         text
           .setPlaceholder("wrk-...")
@@ -6138,7 +7147,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
-        "桌面端点同步按钮会直接读取苹果图书数据库；手机点按钮会把请求写入同步文件夹，由同一 iCloud 库里的 Mac 执行。Mac 端需要保持 Obsidian 运行，并给 Obsidian 完全磁盘访问权限。",
+        "苹果图书首次同步需要在 Mac 上完成。之后桌面端直接读取数据库；平板/手机点同步会把请求写入同步文件夹，由同一 iCloud 库里的 Mac 执行。Mac 没开时请求会排队。Mac 端需要保持 Obsidian 运行，并给 Obsidian 完全磁盘访问权限。微信读书同步不依赖 Mac。",
     });
 
     const appleStatus = this.appleBooksStatus();
@@ -6162,6 +7171,40 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     appleStatusSetting.addButton((button) =>
       button.setButtonText("重新检查").onClick(() => this.display())
     );
+
+    if (appleStatus.action === "permission") {
+      const guide = containerEl.createDiv({ cls: "abs-permission-guide" });
+      const steps: Array<{ icon: string; title: string; desc: string }> = [
+        {
+          icon: "settings",
+          title: "打开系统设置",
+          desc: "点左上角苹果菜单 → 系统设置。",
+        },
+        {
+          icon: "shield",
+          title: "进入隐私与安全性",
+          desc: "在左侧列表中找到「隐私与安全性」。",
+        },
+        {
+          icon: "folder-check",
+          title: "勾选 Obsidian",
+          desc: "在「完全磁盘访问权限」里勾选 Obsidian；列表里没有就点 + 从「应用程序」添加。",
+        },
+      ];
+      steps.forEach((step, index) => {
+        const row = guide.createDiv({ cls: "abs-permission-step" });
+        row.createDiv({ cls: "abs-permission-num", text: String(index + 1) });
+        const icon = row.createDiv({ cls: "abs-permission-icon" });
+        setIcon(icon, step.icon);
+        const body = row.createDiv({ cls: "abs-permission-body" });
+        body.createDiv({ cls: "abs-permission-title", text: step.title });
+        body.createDiv({ cls: "abs-permission-desc", text: step.desc });
+      });
+      guide.createDiv({
+        cls: "abs-permission-note",
+        text: "勾选后完全退出 Obsidian（Command + Q），再重新打开，然后点「重新检查」。",
+      });
+    }
 
     new Setting(containerEl)
       .setName("显示同步按钮")
@@ -6275,6 +7318,29 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     });
 
     this.groupSections(containerEl);
+
+    const supportHeading = new Setting(containerEl)
+      .setName("支持 / Sponsor")
+      .setHeading();
+    supportHeading.settingEl.addClass("abs-support-heading");
+    const support = containerEl.createDiv({
+      cls: "abs-feedback-card abs-support-card",
+    });
+    const supportBody = support.createDiv({ cls: "abs-feedback-body" });
+    supportBody.createDiv({ cls: "abs-feedback-title", text: "请作者喝杯咖啡" });
+    supportBody.createDiv({
+      cls: "abs-feedback-desc",
+      text: "如果 OmniBooks 对你有帮助，欢迎支持后续开发。",
+    });
+    const supportActions = support.createDiv({ cls: "abs-feedback-actions" });
+    const supportBtn = supportActions.createEl("button", {
+      cls: "abs-feedback-btn abs-support-btn",
+    });
+    setIcon(supportBtn.createSpan({ cls: "abs-support-icon" }), "heart");
+    supportBtn.createSpan({ text: "支持作者" });
+    supportBtn.addEventListener("click", () => {
+      openExternal("https://afdian.com/a/tack123/plan");
+    });
   }
 
   private groupSections(containerEl: HTMLElement): void {

@@ -825,7 +825,7 @@ export async function syncWeread(
 
       let readingTime =
         existingByBookId.get(entry.bookId)?.find((item) => item.readingTime)?.readingTime ?? "";
-      if (!readingTime && hasNotes) {
+      if (!readingTime) {
         try {
           const progress = (await callGateway(
             apiKey,

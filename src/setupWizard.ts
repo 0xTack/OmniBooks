@@ -23,7 +23,7 @@ export interface SetupWizardOptions {
   onWereadQrLogin: () => Promise<string | null>;
   onOpenPermission: () => void;
   onOpenBooks: () => void;
-  onDismiss: () => void;
+  onSkip: () => void;
   onFinish: (result: SetupResult) => Promise<void> | void;
   onOpenShelf: () => void;
 }
@@ -32,12 +32,12 @@ const WEREAD_KEY_PAGE = "https://weread.qq.com/r/weread-skills";
 
 function appleRequirement(): string {
   if (!Platform.isDesktopApp) {
-    return "需要：同一 iCloud 库里的 Mac 保持 Obsidian 运行，并授予完全磁盘访问权限。";
+    return "需要：同一 iCloud 库里的 Mac 先完成首次同步，并保持 Obsidian 运行；Mac 需授予完全磁盘访问权限。";
   }
   if (process.platform !== "darwin") {
     return "需要：macOS 桌面版。其他系统可以手动放入笔记，或改用微信读书。";
   }
-  return "需要：macOS「图书」App 已打开过一次；Obsidian 已获完全磁盘访问权限。";
+  return "需要：macOS「图书」App 已打开过一次；Obsidian 已获完全磁盘访问权限。首次同步会在这台 Mac 上建立书库。";
 }
 
 function appleSteps(status: SetupStatus): string[] {
@@ -57,9 +57,9 @@ function appleSteps(status: SetupStatus): string[] {
   }
   if (status.label === "手机端需 Mac 中转") {
     return [
-      "在同一 iCloud 库里的 Mac 上安装并启用 OmniBooks。",
-      "Mac 保持 Obsidian 运行，并授予完全磁盘访问权限。",
-      "手机点同步会写入请求，由 Mac 执行。",
+      "第一次同步需要在 Mac 上完成：在 Mac 的 Obsidian 里打开 OmniBooks，执行一次苹果图书同步。",
+      "之后同一 iCloud 库里的平板/手机点同步，会把请求交给正在运行的 Mac。",
+      "Mac 需要保持 Obsidian 运行，并授予完全磁盘访问权限。",
     ];
   }
   if (status.label === "当前系统不支持") {
@@ -75,16 +75,16 @@ const SOURCE_OPTIONS: Array<{
   icon: string;
 }> = [
   {
-    id: "apple",
-    name: "苹果图书",
-    desc: "读取本机 Books 数据库与划线。需要完全磁盘访问权限。",
-    icon: "book-open",
-  },
-  {
     id: "weread",
     name: "微信读书",
     desc: "用 API Key 读取书架、划线与想法。",
     icon: "book",
+  },
+  {
+    id: "apple",
+    name: "苹果图书",
+    desc: "读取 Mac 本机 Books 数据库与划线。首次同步需要在 Mac 电脑上完成。",
+    icon: "book-open",
   },
   {
     id: "both",
@@ -103,6 +103,10 @@ export class SetupWizardModal extends Modal {
   private skipApple = false;
   private qrPending = false;
   private finished = false;
+  private saving = false;
+  private allowClose = false;
+  private showUnfinished = false;
+  private closeHintAt = 0;
 
   constructor(app: App, opts: SetupWizardOptions) {
     super(app);
@@ -113,13 +117,27 @@ export class SetupWizardModal extends Modal {
 
   onOpen(): void {
     this.modalEl.setCssStyles({ width: "min(620px, 94vw)" });
+    this.containerEl.addClass("abs-wizard-locked");
+    this.modalEl.addClass("abs-wizard-locked");
     this.contentEl.addClass("abs-wizard");
     this.render();
   }
 
   onClose(): void {
     this.contentEl.empty();
-    if (!this.finished) this.opts.onDismiss();
+  }
+
+  /** 首次安装向导只能通过「完成」或「跳过」结束，避免误关后不再出现。 */
+  close(): void {
+    if (!this.allowClose) {
+      const now = Date.now();
+      if (now - this.closeHintAt > 1500) {
+        this.closeHintAt = now;
+        new Notice("请先点「完成」或「跳过全部」结束安装向导");
+      }
+      return;
+    }
+    super.close();
   }
 
   private render(): void {
@@ -133,6 +151,7 @@ export class SetupWizardModal extends Modal {
 
   private goSource(): void {
     this.step = "source";
+    this.showUnfinished = false;
     this.render();
   }
 
@@ -140,12 +159,40 @@ export class SetupWizardModal extends Modal {
     this.source = source;
     this.skipWeread = source === "apple";
     this.skipApple = source === "weread";
+    this.showUnfinished = false;
     this.step = "connect";
     this.render();
   }
 
+  private wereadReady(): boolean {
+    return Boolean(this.wereadKey.trim());
+  }
+
+  private appleReady(): boolean {
+    return this.opts.appleStatus().label === "可用";
+  }
+
+  private unresolvedSources(): string[] {
+    const unresolved: string[] = [];
+    if (this.source !== "apple" && !this.skipWeread && !this.wereadReady()) {
+      unresolved.push("微信读书");
+    }
+    if (this.source !== "weread" && !this.skipApple && !this.appleReady()) {
+      unresolved.push("苹果图书");
+    }
+    return unresolved;
+  }
+
   private async finish(): Promise<void> {
+    if (this.saving) return;
     if (this.source === null) return;
+    const unresolved = this.unresolvedSources();
+    if (unresolved.length > 0) {
+      this.showUnfinished = true;
+      this.render();
+      new Notice(`还有未完成的书源：${unresolved.join("、")}`);
+      return;
+    }
     this.finished = true;
     const result: SetupResult = {
       source: this.source,
@@ -153,9 +200,35 @@ export class SetupWizardModal extends Modal {
       wereadSkipped: this.source === "apple" || this.skipWeread,
       appleSkipped: this.source === "weread" || this.skipApple,
     };
-    await this.opts.onFinish(result);
-    this.step = "done";
-    this.render();
+    this.saving = true;
+    try {
+      await this.opts.onFinish(result);
+      this.step = "done";
+      this.allowClose = true;
+      this.containerEl.removeClass("abs-wizard-locked");
+      this.modalEl.removeClass("abs-wizard-locked");
+      this.showUnfinished = false;
+      this.render();
+    } catch (error) {
+      this.finished = false;
+      new Notice(
+        `保存设置失败：${error instanceof Error ? error.message : String(error)}`
+      );
+    } finally {
+      this.saving = false;
+    }
+  }
+
+  private skipAll(): void {
+    this.finished = true;
+    this.allowClose = true;
+    this.opts.onSkip();
+    this.close();
+  }
+
+  private closeDone(): void {
+    this.allowClose = true;
+    this.close();
   }
 
   private renderSource(): void {
@@ -167,6 +240,7 @@ export class SetupWizardModal extends Modal {
     });
 
     const list = contentEl.createDiv({ cls: "abs-wizard-sources" });
+    const cards: HTMLElement[] = [];
     for (const option of SOURCE_OPTIONS) {
       const card = list.createDiv({ cls: "abs-wizard-source" });
       card.setAttribute("role", "button");
@@ -188,8 +262,28 @@ export class SetupWizardModal extends Modal {
           choose();
         }
       });
+      cards.push(card);
     }
 
+    // 默认把焦点和高亮放在「两个都用」；已有选择时跟随已有选择。
+    const selectedIndex = SOURCE_OPTIONS.findIndex(
+      (option) => option.id === this.source
+    );
+    const preferredIndex = SOURCE_OPTIONS.findIndex(
+      (option) => option.id === "both"
+    );
+    const focusIndex =
+      selectedIndex >= 0 ? selectedIndex : preferredIndex >= 0 ? preferredIndex : 0;
+    const target = cards[focusIndex];
+    if (!this.source && target) target.addClass("is-selected");
+    if (target) {
+      window.setTimeout(() => target.focus({ preventScroll: true }), 0);
+    }
+
+    contentEl.createEl("p", {
+      cls: "abs-wizard-note",
+      text: "这个向导只在首次安装时出现一次，之后可以在 设置 → OmniBooks 里重新打开。",
+    });
     contentEl.createEl("p", {
       cls: "abs-wizard-note",
       text: "更多来源陆续加入：Kindle、KOReader、Readwise、本地 EPUB / PDF。",
@@ -198,9 +292,9 @@ export class SetupWizardModal extends Modal {
     const footer = contentEl.createDiv({ cls: "abs-wizard-footer" });
     const skip = footer.createEl("button", {
       cls: "abs-wizard-btn is-quiet",
-      text: "稍后再说",
+      text: "跳过安装",
     });
-    skip.addEventListener("click", () => this.close());
+    skip.addEventListener("click", () => this.skipAll());
   }
 
   private renderConnect(): void {
@@ -210,20 +304,36 @@ export class SetupWizardModal extends Modal {
     contentEl.createEl("h2", { text: "连接书源" });
     contentEl.createEl("p", {
       cls: "abs-wizard-intro",
-      text: both ? "两行独立，任意一行都可以先跳过。" : "按下面的提示连上就能用。之后可以在设置里改。",
+      text: both
+        ? "两个书源都可以先跳过。只有都连上或跳过后，才能点「完成」。"
+        : "按下面的提示连上，或跳过这个书源。之后可以在设置里改。",
     });
 
     const rows = contentEl.createDiv({ cls: "abs-wizard-rows" });
     if (this.source !== "apple") this.renderWereadRow(rows);
     if (this.source !== "weread") this.renderAppleRow(rows);
 
+    const unresolved = this.unresolvedSources();
+    if (unresolved.length > 0) {
+      contentEl.createDiv({
+        cls: "abs-wizard-hint",
+        text: `还差：${unresolved.join("、")}。完成后才能点「完成」；暂时不用的一项可以点「跳过这个书源」。`,
+      });
+    }
+
     const footer = contentEl.createDiv({ cls: "abs-wizard-footer" });
     const back = footer.createEl("button", { cls: "abs-wizard-btn", text: "上一步" });
     back.addEventListener("click", () => this.goSource());
 
+    const skip = footer.createEl("button", {
+      cls: "abs-wizard-btn is-quiet",
+      text: "跳过全部",
+    });
+    skip.addEventListener("click", () => this.skipAll());
+
     const start = footer.createEl("button", {
       cls: "abs-wizard-btn mod-cta",
-      text: "开始使用",
+      text: "完成",
     });
     start.addEventListener("click", () => {
       void this.finish();
@@ -233,6 +343,9 @@ export class SetupWizardModal extends Modal {
   private renderWereadRow(parent: HTMLElement): void {
     const row = parent.createDiv({ cls: "abs-wizard-row" });
     if (this.skipWeread) row.addClass("is-skipped");
+    if (this.showUnfinished && !this.skipWeread && !this.wereadReady()) {
+      row.addClass("is-unfinished");
+    }
 
     const head = row.createDiv({ cls: "abs-wizard-row-head" });
     const icon = head.createDiv({ cls: "abs-wizard-row-icon" });
@@ -241,8 +354,10 @@ export class SetupWizardModal extends Modal {
 
     const status = head.createEl("span", { cls: "abs-wizard-status" });
     const paintStatus = () => {
-      const hasKey = Boolean(this.wereadKey.trim());
-      status.setText(this.skipWeread ? "已跳过" : hasKey ? "已填写 Key" : "未填写 Key");
+      const hasKey = this.wereadReady();
+      status.setText(
+        this.skipWeread ? "已跳过" : hasKey ? "已连接" : "待填写 Key"
+      );
       status.toggleClass("is-ok", !this.skipWeread && hasKey);
       status.toggleClass("is-muted", this.skipWeread || !hasKey);
     };
@@ -278,6 +393,7 @@ export class SetupWizardModal extends Modal {
         if (key) {
           this.wereadKey = key;
           this.skipWeread = false;
+          this.showUnfinished = false;
           this.render();
           new Notice("微信读书已连接");
           return;
@@ -300,18 +416,17 @@ export class SetupWizardModal extends Modal {
       text: "需要：微信读书账号。同步时报「无效 Key」时，重新扫码或重新粘贴一次。",
     });
 
-    const toggle = row.createEl("label", { cls: "abs-wizard-skip" });
-    const checkbox = toggle.createEl("input", { type: "checkbox" });
-    checkbox.checked = this.skipWeread;
-    toggle.createSpan({ text: "暂时跳过，稍后在设置里添加" });
-    checkbox.addEventListener("change", () => {
-      this.skipWeread = checkbox.checked;
-      row.toggleClass("is-skipped", this.skipWeread);
-      input.disabled = this.skipWeread;
-      qr.disabled = this.skipWeread;
-      link.disabled = this.skipWeread;
-      paintStatus();
+    const skipRow = row.createDiv({ cls: "abs-wizard-row-actions" });
+    const skip = skipRow.createEl("button", {
+      cls: "abs-wizard-btn is-quiet",
+      text: this.skipWeread ? "恢复这一项" : "跳过这个书源",
     });
+    skip.addEventListener("click", () => {
+      this.skipWeread = !this.skipWeread;
+      this.showUnfinished = false;
+      this.render();
+    });
+
     input.disabled = this.skipWeread;
     qr.disabled = this.skipWeread;
     link.disabled = this.skipWeread;
@@ -322,6 +437,11 @@ export class SetupWizardModal extends Modal {
     if (this.skipApple) row.addClass("is-skipped");
 
     const status = this.opts.appleStatus();
+    const ready = status.label === "可用";
+    if (this.showUnfinished && !this.skipApple && !ready) {
+      row.addClass("is-unfinished");
+    }
+
     const head = row.createDiv({ cls: "abs-wizard-row-head" });
     const icon = head.createDiv({ cls: "abs-wizard-row-icon" });
     setIcon(icon, "book-open");
@@ -329,14 +449,25 @@ export class SetupWizardModal extends Modal {
 
     const pill = head.createEl("span", { cls: "abs-wizard-status" });
     const paintStatus = () => {
-      pill.setText(this.skipApple ? "已跳过" : status.label);
-      pill.toggleClass("is-ok", !this.skipApple && status.label === "可用");
+      pill.setText(
+        this.skipApple ? "已跳过" : ready ? "已连接" : status.label
+      );
+      pill.toggleClass("is-ok", !this.skipApple && ready);
       pill.toggleClass("is-warn", !this.skipApple && status.action === "permission");
-      pill.toggleClass("is-muted", this.skipApple || (!status.action && status.label !== "可用"));
+      pill.toggleClass(
+        "is-muted",
+        this.skipApple || (!status.action && !ready)
+      );
     };
     paintStatus();
 
     row.createEl("p", { cls: "abs-wizard-row-desc", text: status.detail });
+    if (Platform.isMobile) {
+      row.createEl("p", {
+        cls: "abs-wizard-note",
+        text: "苹果图书由 Mac 代读；微信读书可直接在本机同步。Mac 没开时，苹果图书请求会排队。",
+      });
+    }
 
     const actions = row.createDiv({ cls: "abs-wizard-row-actions" });
     const buttons: HTMLButtonElement[] = [];
@@ -357,28 +488,34 @@ export class SetupWizardModal extends Modal {
     }
 
     const recheck = actions.createEl("button", { cls: "abs-wizard-btn", text: "重新检查" });
-    recheck.addEventListener("click", () => this.render());
+    recheck.addEventListener("click", () => {
+      this.showUnfinished = false;
+      this.render();
+    });
     buttons.push(recheck);
 
-    row.createDiv({ cls: "abs-wizard-req", text: appleRequirement() });
+    if (!this.skipApple) {
+      row.createDiv({ cls: "abs-wizard-req", text: appleRequirement() });
 
-    const steps = appleSteps(status);
-    if (steps.length > 0) {
-      row.createDiv({ cls: "abs-wizard-req-title", text: "怎么解决" });
-      const list = row.createEl("ul", { cls: "abs-wizard-steps" });
-      for (const step of steps) list.createEl("li", { text: step });
+      const steps = appleSteps(status);
+      if (steps.length > 0) {
+        row.createDiv({ cls: "abs-wizard-req-title", text: "怎么解决" });
+        const list = row.createEl("ul", { cls: "abs-wizard-steps" });
+        for (const step of steps) list.createEl("li", { text: step });
+      }
     }
 
-    const toggle = row.createEl("label", { cls: "abs-wizard-skip" });
-    const checkbox = toggle.createEl("input", { type: "checkbox" });
-    checkbox.checked = this.skipApple;
-    toggle.createSpan({ text: "暂时跳过，稍后在设置里添加" });
-    checkbox.addEventListener("change", () => {
-      this.skipApple = checkbox.checked;
-      row.toggleClass("is-skipped", this.skipApple);
-      for (const button of buttons) button.disabled = this.skipApple;
-      paintStatus();
+    const skipRow = row.createDiv({ cls: "abs-wizard-row-actions" });
+    const skip = skipRow.createEl("button", {
+      cls: "abs-wizard-btn is-quiet",
+      text: this.skipApple ? "恢复这一项" : "跳过这个书源",
     });
+    skip.addEventListener("click", () => {
+      this.skipApple = !this.skipApple;
+      this.showUnfinished = false;
+      this.render();
+    });
+
     for (const button of buttons) button.disabled = this.skipApple;
   }
 
@@ -392,13 +529,12 @@ export class SetupWizardModal extends Modal {
 
     const list = contentEl.createDiv({ cls: "abs-wizard-done-list" });
     if (this.source !== "apple") {
-      const hasKey = Boolean(this.wereadKey.trim());
       list.createDiv({
         cls: "abs-wizard-done-row",
         text: this.skipWeread
           ? "微信读书：已跳过"
-          : hasKey
-            ? "微信读书：已填写 Key"
+          : this.wereadReady()
+            ? "微信读书：已连接"
             : "微信读书：还没填 Key，书源不会同步",
       });
     }
@@ -406,19 +542,22 @@ export class SetupWizardModal extends Modal {
       const status = this.opts.appleStatus();
       list.createDiv({
         cls: "abs-wizard-done-row",
-        text: this.skipApple ? "苹果图书：已跳过" : `苹果图书：${status.label}`,
+        text: this.skipApple
+          ? "苹果图书：已跳过"
+          : `苹果图书：${status.label === "可用" ? "已连接" : status.label}`,
       });
     }
 
     const footer = contentEl.createDiv({ cls: "abs-wizard-footer" });
     const close = footer.createEl("button", { cls: "abs-wizard-btn", text: "关闭" });
-    close.addEventListener("click", () => this.close());
+    close.addEventListener("click", () => this.closeDone());
 
     const open = footer.createEl("button", {
       cls: "abs-wizard-btn mod-cta",
       text: "打开书架",
     });
     open.addEventListener("click", () => {
+      this.allowClose = true;
       this.close();
       this.opts.onOpenShelf();
     });
