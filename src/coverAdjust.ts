@@ -29,7 +29,7 @@ export class CoverAdjustModal extends Modal {
 
   private applyPreview(): void {
     if (!this.previewImg) return;
-    this.previewImg.style.transform = `translate(${this.draft.x}%, ${this.draft.y}%) scale(${this.draft.scale}) rotate(${this.draft.rotate}deg)`;
+    this.previewImg.setCssStyles({ transform: `translate(${this.draft.x}%, ${this.draft.y}%) scale(${this.draft.scale}) rotate(${this.draft.rotate}deg)` });
   }
 
   private slider(

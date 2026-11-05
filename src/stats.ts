@@ -201,7 +201,7 @@ export class ReadingStatsModal extends Modal {
       column.createDiv({ cls: "abs-chart-value", text: String(month.count) });
       if (month.count > 0) {
         const bar = column.createDiv({ cls: "abs-chart-bar" });
-        bar.style.height = `${Math.max(2, Math.round((month.count / max) * 100))}%`;
+        bar.setCssStyles({ height: `${Math.max(2, Math.round((month.count / max) * 100))}%` });
       }
       column.createDiv({ cls: "abs-chart-label", text: month.label });
       // 触屏没有 hover：点一下也能看到数量

@@ -35,9 +35,9 @@ function parseFrontmatter(text: string): Record<string, string> {
 function splitSentences(text: string): string[] {
   return text
     .replace(/\s+/g, " ")
-    .split(/(?<=[。！？!?])/)
-    .map((sentence) => sentence.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "").trim())
-    .filter((sentence) => sentence.length >= 8);
+    .match(/[^。！？!?]+[。！？!?]?/g)
+    ?.map((sentence) => sentence.replace(/^["'“”‘’\s]+|["'“”‘’\s]+$/g, "").trim())
+    .filter((sentence) => sentence.length >= 8) ?? [];
 }
 
 export function trimToSentence(text: string, target = 50): string {

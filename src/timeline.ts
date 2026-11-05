@@ -319,7 +319,7 @@ export class TimelineModal extends Modal {
       for (const entry of dateNodes) {
         const distance = entry.date.getBoundingClientRect().top - pinBottom;
         const opacity = Math.max(0, Math.min(1, distance / fadeRange));
-        entry.date.style.opacity = String(opacity);
+        entry.date.setCssStyles({ opacity: String(opacity) });
       }
     });
 

@@ -9767,82 +9767,47 @@ a[data-href^="ibooks://"] {
   display: none !important;
 }
 
-.markdown-reading-view.omnibooks .metadata-property:not([data-property-key="title"]):not([data-property-key="author"]),
-.omnibooks .markdown-reading-view .metadata-property:not([data-property-key="title"]):not([data-property-key="author"]) {
-  display: none !important;
-}
-
-/* 书籍笔记：只保留书名和作者；内部字段隐藏，自定义新增属性仍会显示 */
-.omnibooks .metadata-property[data-property-key="bookId"],
-.omnibooks .metadata-property[data-property-key="source"],
-.omnibooks .metadata-property[data-property-key="status"],
-.omnibooks .metadata-property[data-property-key="progress"],
-.omnibooks .metadata-property[data-property-key="readingStatus"],
-.omnibooks .metadata-property[data-property-key="highlights"],
-.omnibooks .metadata-property[data-property-key="words"],
-.omnibooks .metadata-property[data-property-key="lastReadDate"],
-.omnibooks .metadata-property[data-property-key="last_modified_at"],
-.omnibooks .metadata-property[data-property-key="source_file"],
-.omnibooks .metadata-property[data-property-key="open_url"],
-.omnibooks .metadata-property[data-property-key="format"],
-.omnibooks .metadata-property[data-property-key="publisher"],
-.omnibooks .metadata-property[data-property-key="tags"],
-.omnibooks .metadata-property[data-property-key="cssclasses"],
-.omnibooks .metadata-property[data-property-key="annotation_count"],
-.omnibooks .metadata-property[data-property-key="doc_type"],
-.omnibooks .metadata-property[data-property-key="reviewCount"],
-.omnibooks .metadata-property[data-property-key="noteCount"],
-.omnibooks .metadata-property[data-property-key="isbn"],
-.omnibooks .metadata-property[data-property-key="readingDate"],
-.omnibooks .metadata-property[data-property-key="cover"] {
-  display: none !important;
-}
-
-/* 兜底：属性面板不依赖 .omnibooks 类，内部字段也隐藏；阅读时间保留 */
-.metadata-property[data-property-key="bookId"],
-.metadata-property[data-property-key="source"],
-.metadata-property[data-property-key="status"],
-.metadata-property[data-property-key="progress"],
-.metadata-property[data-property-key="readingStatus"],
-.metadata-property[data-property-key="highlights"],
-.metadata-property[data-property-key="words"],
-.metadata-property[data-property-key="lastReadDate"],
-.metadata-property[data-property-key="last_modified_at"],
-.metadata-property[data-property-key="source_file"],
-.metadata-property[data-property-key="open_url"],
-.metadata-property[data-property-key="format"],
-.metadata-property[data-property-key="publisher"],
-.metadata-property[data-property-key="tags"],
-.metadata-property[data-property-key="cssclasses"],
-.metadata-property[data-property-key="annotation_count"],
-.metadata-property[data-property-key="doc_type"],
-.metadata-property[data-property-key="reviewCount"],
-.metadata-property[data-property-key="noteCount"],
-.metadata-property[data-property-key="isbn"],
-.metadata-property[data-property-key="readingDate"],
-.metadata-property[data-property-key="cover"] {
-  display: none !important;
-}
-
-/* 设置里选择「全部属性」时覆盖默认隐藏 */
-body.omnibooks-show-all-props .metadata-property {
-  display: flex !important;
-}
-
-/* lastRead 只显示时间值，不显示字段名 */
-.metadata-property[data-property-key="lastRead"] .metadata-property-key {
-  display: none !important;
-}
-
-/* 默认隐藏 lastRead；在设置里自定义选择后才显示 */
-.omnibooks .metadata-property[data-property-key="lastRead"],
-.metadata-property[data-property-key="lastRead"] {
-  display: none !important;
-}
-
 /* 阅读/编辑切换按钮移到右下角，避开顶部菜单栏 */
 .abs-reader-mode--top {
   top: auto !important;
   bottom: 26px !important;
   right: 20px !important;
+}
+
+/* 阅读视图进入编辑模式：四周一圈高亮边框 */
+.abs-reader-editing {
+  position: relative;
+}
+
+.abs-reader-editing::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  border: 2px solid var(--interactive-accent);
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 22px color-mix(in srgb, var(--interactive-accent) 10%, transparent);
+}
+
+
+.abs-inline-editing-label {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+/* 属性显示由插件根据设置给行加 class，不再注入 style 元素 */
+.metadata-property.abs-prop-hidden {
+  display: none !important;
+}
+
+/* 文件管理器里隐藏封面目录 */
+.nav-folder.abs-hide-folder {
+  display: none !important;
 }

@@ -1,4 +1,5 @@
 import { App, Modal, Notice, Setting, TFile, normalizePath, requestUrl, setIcon } from "obsidian";
+import { appendMarkup } from "./dom";
 
 export interface AiCache {
   fingerprint: string;
@@ -713,7 +714,8 @@ export class AiAdvisorModal extends Modal {
     meta.createDiv({ cls: "abs-ai-books-count", text: "可关闭窗口，后台继续" });
 
     const radarWrap = contentEl.createDiv({ cls: "abs-ai-radar is-loading" });
-    radarWrap.innerHTML = this.radarSvg(EMPTY_DIMS, undefined, true);
+    radarWrap.empty();
+    appendMarkup(radarWrap, this.radarSvg(EMPTY_DIMS, undefined, true));
 
     const tipPool = [
       "正在把你的书按主题归类…",
@@ -739,12 +741,12 @@ export class AiAdvisorModal extends Modal {
       const seconds = Math.floor((Date.now() - job.startedAt) / 1000);
       timeEl.setText(`已用 ${seconds} 秒`);
       if (job.done) {
-        bar.style.width = "100%";
+        bar.setCssStyles({ width: "100%" });
         return;
       }
       // 慢速爬升，最多到 92%，完成时才到 100%
       const percent = Math.min(92, 6 + seconds * 2.2);
-      bar.style.width = `${percent}%`;
+      bar.setCssStyles({ width: `${percent}%` });
       stageEl.setText(job.stage);
     };
 
@@ -1279,7 +1281,8 @@ export class AiAdvisorModal extends Modal {
     }
 
     const radarWrap = root.createDiv({ cls: "abs-ai-radar" });
-    radarWrap.innerHTML = this.radarSvg(analysis.profile, analysis.coverage);
+    radarWrap.empty();
+    appendMarkup(radarWrap, this.radarSvg(analysis.profile, analysis.coverage));
     const legend = radarWrap.createDiv({ cls: "abs-ai-radar-legend" });
     legend.createSpan({ cls: "is-solid", text: "兴趣画像" });
     legend.createSpan({ cls: "is-dashed", text: "阅读覆盖" });
@@ -1433,8 +1436,10 @@ export class AiAdvisorModal extends Modal {
         cls: "abs-ai-chat-send",
         attr: { "aria-label": "发送", role: "button", tabindex: "0" },
       });
-      sendBtn.innerHTML =
-        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>';
+      appendMarkup(
+        sendBtn,
+        '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>'
+      );
 
       const context = [
         analysis.summary,
@@ -1528,7 +1533,7 @@ export class AiAdvisorModal extends Modal {
 
       const bar = root.createDiv({ cls: "abs-completion-bar" });
       const doneBar = bar.createDiv({ cls: "abs-completion-done" });
-      doneBar.style.width = `${rate}%`;
+      doneBar.setCssStyles({ width: `${rate}%` });
 
       const byDomain = new Map<string, { started: number; done: number }>();
       for (const book of started) {
@@ -1555,13 +1560,15 @@ export class AiAdvisorModal extends Modal {
           line.createSpan({ cls: "abs-chart-bar-label", text: row.label });
           const track = line.createDiv({ cls: "abs-chart-bar-track" });
           const fill = track.createDiv({ cls: "abs-chart-bar-fill" });
-          fill.style.width = `${row.rate}%`;
-          fill.style.background =
-            row.rate >= 70
-              ? "hsl(150 30% 48%)"
-              : row.rate >= 45
-                ? "hsl(45 45% 52%)"
-                : "hsl(4 45% 52%)";
+          fill.setCssStyles({ width: `${row.rate}%` });
+          fill.setCssStyles({
+            background:
+              row.rate >= 70
+                ? "hsl(150 30% 48%)"
+                : row.rate >= 45
+                  ? "hsl(45 45% 52%)"
+                  : "hsl(4 45% 52%)",
+          });
           line.createSpan({ cls: "abs-chart-bar-value", text: `${row.rate}%` });
         }
         root.createDiv({
@@ -1611,7 +1618,7 @@ export class AiAdvisorModal extends Modal {
         const track = row.createDiv({ cls: "abs-chart-htrack" });
         if (count > 0) {
           const fill = track.createDiv({ cls: "abs-chart-hfill" });
-          fill.style.width = `${Math.max(2, (count / max) * 100)}%`;
+          fill.setCssStyles({ width: `${Math.max(2, (count / max) * 100)}%` });
         }
         row.createSpan({ cls: "abs-chart-hvalue", text: String(count) });
         row.title = `${targetYear} 年 ${index + 1} 月：${count} 条笔记`;
@@ -1638,7 +1645,7 @@ export class AiAdvisorModal extends Modal {
         row.createSpan({ cls: "abs-chart-hlabel", text: String(year) });
         const track = row.createDiv({ cls: "abs-chart-htrack" });
         const fill = track.createDiv({ cls: "abs-chart-hfill" });
-        fill.style.width = `${Math.max(2, (count / max) * 100)}%`;
+        fill.setCssStyles({ width: `${Math.max(2, (count / max) * 100)}%` });
         row.createSpan({ cls: "abs-chart-hvalue", text: String(count) });
         row.title = `${year} 年：${count} 条笔记`;
       }
@@ -1702,8 +1709,8 @@ export class AiAdvisorModal extends Modal {
         line.createSpan({ cls: "abs-chart-bar-label", text: label });
         const track = line.createDiv({ cls: "abs-chart-bar-track" });
         const fill = track.createDiv({ cls: "abs-chart-bar-fill" });
-        fill.style.width = `${(count / total) * 100}%`;
-        fill.style.background = color;
+        fill.setCssStyles({ width: `${(count / total) * 100}%` });
+        fill.setCssStyles({ background: color });
         line.createSpan({
           cls: "abs-chart-bar-value",
           text: `${Math.round((count / total) * 100)}%`,
@@ -1733,7 +1740,7 @@ export class AiAdvisorModal extends Modal {
           line.createSpan({ cls: "abs-chart-bar-label", text: row.title.slice(0, 12) });
           const track = line.createDiv({ cls: "abs-chart-bar-track" });
           const fill = track.createDiv({ cls: "abs-chart-bar-fill" });
-          fill.style.width = `${(row.score / maxScore) * 100}%`;
+          fill.setCssStyles({ width: `${(row.score / maxScore) * 100}%` });
           line.createSpan({ cls: "abs-chart-bar-value", text: String(row.score) });
         }
         root.createDiv({ cls: "abs-completion-note", text: "投入度 = 划线数 × 3 + 阅读进度 ÷ 10。" });
@@ -1815,7 +1822,7 @@ export class AiAdvisorModal extends Modal {
           line.createSpan({ cls: "abs-chart-bar-label abs-topic-name", text: row.name });
           const track = line.createDiv({ cls: "abs-chart-bar-track" });
           const fill = track.createDiv({ cls: "abs-chart-bar-fill" });
-          fill.style.width = `${(row.count / max) * 100}%`;
+          fill.setCssStyles({ width: `${(row.count / max) * 100}%` });
           line.createSpan({ cls: "abs-chart-bar-value abs-topic-count", text: `${row.count} 本` });
           line.createSpan({
             cls: "abs-topic-when",
@@ -1939,14 +1946,15 @@ export class AiAdvisorModal extends Modal {
       );
       offset += fraction;
     }
-    donut.innerHTML = `<svg viewBox="0 0 120 120">${segments.join("")}</svg>`;
+    donut.empty();
+    appendMarkup(donut, `<svg viewBox="0 0 120 120">${segments.join("")}</svg>`);
 
     const legendBox = donut.createDiv({ cls: "abs-chart-legend" });
     for (const bucket of buckets) {
       if (bucket.count === 0) continue;
       const row = legendBox.createDiv({ cls: "abs-chart-legend-row" });
       const dot = row.createSpan({ cls: "abs-chart-dot" });
-      dot.style.background = bucket.color;
+      dot.setCssStyles({ background: bucket.color });
       row.createSpan({ text: `${bucket.label} ${bucket.count}` });
     }
   }
@@ -1959,12 +1967,12 @@ export class AiAdvisorModal extends Modal {
     const weread = books.length - apple;
     const sourceBar = root.createDiv({ cls: "abs-chart-split" });
     const appleBar = sourceBar.createDiv({ cls: "abs-chart-split-part" });
-    appleBar.style.width = `${(apple / total) * 100}%`;
-    appleBar.style.background = "hsl(200 34% 52%)";
+    appleBar.setCssStyles({ width: `${(apple / total) * 100}%` });
+    appleBar.setCssStyles({ background: "hsl(200 34% 52%)" });
     appleBar.setText(`苹果 ${apple}`);
     const wereadBar = sourceBar.createDiv({ cls: "abs-chart-split-part" });
-    wereadBar.style.width = `${(weread / total) * 100}%`;
-    wereadBar.style.background = "hsl(150 30% 48%)";
+    wereadBar.setCssStyles({ width: `${(weread / total) * 100}%` });
+    wereadBar.setCssStyles({ background: "hsl(150 30% 48%)" });
     wereadBar.setText(`微信 ${weread}`);
   }
 

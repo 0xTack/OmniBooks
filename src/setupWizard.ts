@@ -112,7 +112,7 @@ export class SetupWizardModal extends Modal {
   }
 
   onOpen(): void {
-    this.modalEl.style.width = "min(620px, 94vw)";
+    this.modalEl.setCssStyles({ width: "min(620px, 94vw)" });
     this.contentEl.addClass("abs-wizard");
     this.render();
   }

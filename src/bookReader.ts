@@ -425,7 +425,7 @@ export class BookReaderView extends ItemView {
     // 铅笔固定在面板右上角，不随内容滚动
     this.modeBtnEl?.remove();
     if (getComputedStyle(this.containerEl).position === "static") {
-      this.containerEl.style.position = "relative";
+      this.containerEl.setCssStyles({ position: "relative" });
     }
     const modeBtn = this.containerEl.createEl("button", {
       cls: "clickable-icon abs-reader-mode abs-reader-mode--top",
@@ -494,8 +494,8 @@ export class BookReaderView extends ItemView {
 
         if (this.mode === "edit") {
           const autosize = (area: HTMLTextAreaElement) => {
-            area.style.height = "auto";
-            area.style.height = `${area.scrollHeight}px`;
+            area.setCssStyles({ height: "auto" });
+            area.setCssStyles({ height: `${area.scrollHeight}px` });
           };
           if (item.link) {
             const textArea = article.createEl("textarea", {
@@ -762,12 +762,12 @@ export class BookReaderView extends ItemView {
     const bar = root.createDiv({ cls: "abs-sel-bar" });
     const copyBtn = bar.createEl("button", { text: "复制" });
     const favBtn = bar.createEl("button", { text: "收藏" });
-    bar.style.display = "none";
+    bar.setCssStyles({ display: "none" });
 
     let currentText = "";
 
     const hide = () => {
-      bar.style.display = "none";
+      bar.setCssStyles({ display: "none" });
       currentText = "";
     };
 
@@ -802,9 +802,9 @@ export class BookReaderView extends ItemView {
         const rect = range.getBoundingClientRect();
         const host = root.getBoundingClientRect();
         currentText = text;
-        bar.style.display = "flex";
-        bar.style.left = `${Math.max(6, Math.min(host.width - 150, rect.left - host.left + rect.width / 2 - 70))}px`;
-        bar.style.top = `${Math.max(6, rect.top - host.top - 42)}px`;
+        bar.setCssStyles({ display: "flex" });
+        bar.setCssStyles({ left: `${Math.max(6, Math.min(host.width - 150, rect.left - host.left + rect.width / 2 - 70))}px` });
+        bar.setCssStyles({ top: `${Math.max(6, rect.top - host.top - 42)}px` });
       }, 10);
     });
 

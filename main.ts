@@ -33,6 +33,7 @@ import { AI_MODULES, AiAdvisorModal, AiCache, importCopilotSettings } from "./sr
 import { CoverAdjust, CoverAdjustModal } from "./src/coverAdjust";
 import { SetupResult, SetupSource, SetupWizardModal } from "./src/setupWizard";
 import { openExternal } from "./src/external";
+import { appendMarkup } from "./src/dom";
 
 export const VIEW_TYPE_APPLE_BOOKS = "apple-books-shelf-view";
 
@@ -518,6 +519,12 @@ export default class AppleBooksShelfPlugin extends Plugin {
     await this.loadSettings();
     this.applyHiddenFolders();
     this.applyPropertyVisibility();
+    this.registerInterval(
+      window.setInterval(() => {
+        this.syncExplorerHiddenFolders();
+        this.syncPropertyVisibility();
+      }, 1000)
+    );
 
     for (const option of ICON_OPTIONS) {
       addIcon(iconId(option.id), option.svg);
@@ -848,8 +855,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
   }
 
   onunload(): void {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_APPLE_BOOKS);
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_BOOK_READER);
+    /* Obsidian 会处理视图卸载；不要在这里 detach leaves */
   }
 
   async openBookReader(files: TFile[]): Promise<void> {
@@ -1097,11 +1103,9 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
   applyIconVars(): void {
     const root = document.documentElement;
-    root.style.setProperty("--omni-icon-size", `${this.settings.ribbonIconSize || 22}px`);
-    root.style.setProperty(
-      "--omni-icon-stroke",
-      `${this.settings.ribbonIconStroke || 0.5}px`
-    );
+    root.setCssProps({ "--omni-icon-size": `${this.settings.ribbonIconSize || 22}px` });
+    root.setCssProps({ "--omni-icon-stroke": `${this.settings.ribbonIconStroke || 0.5}px`
+     });
   }
 
   applyIcon(): void {
@@ -2435,42 +2439,62 @@ export default class AppleBooksShelfPlugin extends Plugin {
     this.settings.aiModules = [...modules].filter((id) => validModules.has(id));
   }
 
+  private visiblePropertyKeys = new Set<string>();
+  private hiddenFolderPaths: string[] = [];
+
   applyPropertyVisibility(): void {
     const showAll = this.settings.showAllProperties === true;
+    this.visiblePropertyKeys = new Set(
+      (this.settings.visibleProperties || "")
+        .split(",")
+        .map((key) => key.trim())
+        .filter(Boolean)
+    );
     document.body.toggleClass("omnibooks-show-all-props", showAll);
-    document.body.toggleClass("omnibooks-show-props", !showAll);
+    this.syncPropertyVisibility();
+  }
 
-    let style = document.getElementById(
-      "omnibooks-visible-props"
-    ) as HTMLStyleElement | null;
-    if (!style) {
-      style = document.createElement("style");
-      style.id = "omnibooks-visible-props";
-      document.head.appendChild(style);
+  syncPropertyVisibility(): void {
+    const showAll = this.settings.showAllProperties === true;
+    document
+      .querySelectorAll<HTMLElement>(".metadata-property[data-property-key]")
+      .forEach((el) => {
+        const key = el.dataset.propertyKey ?? "";
+        el.toggleClass(
+          "abs-prop-hidden",
+          !showAll && !this.visiblePropertyKeys.has(key)
+        );
+      });
+  }
+
+  applyHiddenFolders(): void {
+    if (this.settings.hideAssetFolder === false) {
+      this.hiddenFolderPaths = [];
+      this.syncExplorerHiddenFolders();
+      return;
     }
-    const keys = (this.settings.visibleProperties || "")
-      .split(",")
-      .map((key) => key.trim())
-      .filter(Boolean);
-    style.textContent = keys
-      .map(
-        (key) =>
-          `body.omnibooks-show-props .metadata-property[data-property-key="${key.replace(
-            /"/g,
-            '\\"'
-          )}"]`
-      )
-      .join(",\n")
-      ? `${keys
-          .map(
-            (key) =>
-              `body.omnibooks-show-props .metadata-property[data-property-key="${key.replace(
-                /"/g,
-                '\\"'
-              )}"]`
-          )
-          .join(",\n")} { display: flex !important; }`
-      : "";
+    const dir = normalizePath(
+      this.settings.booksOutputDir || "OmniBooks/苹果图书"
+    );
+    const folders = [`${dir}/assets`];
+    const customCover = normalizePath(this.settings.coverDir || "");
+    if (customCover) folders.push(customCover);
+    this.hiddenFolderPaths = folders;
+    this.syncExplorerHiddenFolders();
+  }
+
+  syncExplorerHiddenFolders(): void {
+    document
+      .querySelectorAll<HTMLElement>(".nav-folder-title[data-path]")
+      .forEach((title) => {
+        const path = title.dataset.path ?? "";
+        title
+          .closest(".nav-folder")
+          ?.toggleClass(
+            "abs-hide-folder",
+            this.hiddenFolderPaths.includes(path)
+          );
+      });
   }
 
   async saveSettings(): Promise<void> {
@@ -2480,37 +2504,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
     this.refreshViews();
   }
 
-  private hiddenFolderStyle: HTMLStyleElement | null = null;
 
-  applyHiddenFolders(): void {
-    if (!this.hiddenFolderStyle) {
-      const style = document.createElement("style");
-      style.id = "omnibooks-hidden-folders";
-      document.head.appendChild(style);
-      this.hiddenFolderStyle = style;
-      this.register(() => style.remove());
-    }
-
-    if (this.settings.hideAssetFolder === false) {
-      this.hiddenFolderStyle.textContent = "";
-      return;
-    }
-
-    const dir = normalizePath(
-      this.settings.booksOutputDir || "OmniBooks/苹果图书"
-    );
-    const folders = [`${dir}/assets`];
-    const customCover = normalizePath(this.settings.coverDir || "");
-    if (customCover) folders.push(customCover);
-
-    const selectors = folders.map((folder) => {
-      const escaped = folder.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      return `.nav-folder:has(> .nav-folder-title[data-path="${escaped}"])`;
-    });
-    this.hiddenFolderStyle.textContent = `${selectors.join(
-      ",\n"
-    )} { display: none !important; }`;
-  }
 }
 
 export class AppleBooksShelfView extends ItemView {
@@ -2803,7 +2797,11 @@ export class AppleBooksShelfView extends ItemView {
           type: "button",
         },
       });
-      syncBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 15.5h9.2a3.4 3.4 0 0 0 .3-6.8 5.3 5.3 0 0 0-10.3-1.1 4 4 0 0 0 .8 7.9z"/><path d="M12 8.6v3.6"/><path d="M10.2 10.4l1.8 1.8 1.8-1.8"/></svg><span class="abs-sync-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>`;
+      syncBtn.empty();
+      appendMarkup(
+        syncBtn,
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.4 15.5h9.2a3.4 3.4 0 0 0 .3-6.8 5.3 5.3 0 0 0-10.3-1.1 4 4 0 0 0 .8 7.9z"/><path d="M12 8.6v3.6"/><path d="M10.2 10.4l1.8 1.8 1.8-1.8"/></svg><span class="abs-sync-chevron"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>`
+      );
       syncBtn.addEventListener("click", (event: MouseEvent) => {
         const target = event.target as HTMLElement;
         if (!target.closest(".abs-sync-chevron")) {
@@ -3483,7 +3481,7 @@ export class AppleBooksShelfView extends ItemView {
     }
 
     if (books.length === 0) {
-      this.emptyEl.style.display = "flex";
+      this.emptyEl.setCssStyles({ display: "flex" });
       this.emptyEl.empty();
       this.emptyEl.createDiv({ cls: "abs-empty-title", text: "书架上还没有书" });
       this.emptyEl.createDiv({
@@ -3532,7 +3530,7 @@ export class AppleBooksShelfView extends ItemView {
       return;
     }
 
-    this.emptyEl.style.display = "none";
+    this.emptyEl.setCssStyles({ display: "none" });
 
     for (const book of books) {
       this.gridEl.appendChild(this.renderCard(book));
@@ -3613,7 +3611,7 @@ export class AppleBooksShelfView extends ItemView {
     const adj = this.plugin.settings.coverAdjust?.[key];
     if (!adj) return;
     img.addClass("is-cover-adjusted");
-    img.style.transform = `translate(${adj.x}%, ${adj.y}%) scale(${adj.scale}) rotate(${adj.rotate}deg)`;
+    img.setCssStyles({ transform: `translate(${adj.x}%, ${adj.y}%) scale(${adj.scale}) rotate(${adj.rotate}deg)` });
   }
 
   openCoverAdjust(book: Book): void {
@@ -3883,7 +3881,7 @@ export class AppleBooksShelfView extends ItemView {
     if (book.progress > 0 && book.progress < 100) {
       const bar = cover.createDiv({ cls: "abs-progress" });
       const fill = bar.createDiv({ cls: "abs-progress-fill" });
-      fill.style.width = `${book.progress}%`;
+      fill.setCssStyles({ width: `${book.progress}%` });
     }
 
     if (this.plugin.settings.showTitles) {
@@ -3906,7 +3904,7 @@ export class AppleBooksShelfView extends ItemView {
 
   private renderCoverFallback(cover: HTMLElement, title: string): void {
     const fallback = cover.createDiv({ cls: "abs-cover-fallback" });
-    fallback.style.background = gradientFor(title);
+    fallback.setCssStyles({ background: gradientFor(title) });
     fallback.createDiv({ cls: "abs-cover-title", text: title });
   }
 
@@ -4156,16 +4154,16 @@ export class AppleBooksShelfView extends ItemView {
       img.alt = top.title;
     } else {
       const fallback = card.createDiv({ cls: "abs-swipe-fallback" });
-      fallback.style.background = gradientFor(top.title);
+      fallback.setCssStyles({ background: gradientFor(top.title) });
       fallback.createDiv({ cls: "abs-swipe-fallback-title", text: top.title });
     }
 
     const likeStamp = card.createDiv({ cls: "abs-swipe-stamp abs-swipe-stamp--like" });
-    likeStamp.createSpan({ cls: "abs-stamp-icon" }).innerHTML = STAMP_STAR_SVG;
+    appendMarkup(likeStamp.createSpan({ cls: "abs-stamp-icon" }), STAMP_STAR_SVG);
     likeStamp.createSpan({ cls: "abs-stamp-text", text: "收藏" });
 
     const passStamp = card.createDiv({ cls: "abs-swipe-stamp abs-swipe-stamp--pass" });
-    passStamp.createSpan({ cls: "abs-stamp-icon" }).innerHTML = STAMP_PAUSE_SVG;
+    appendMarkup(passStamp.createSpan({ cls: "abs-stamp-icon" }), STAMP_PAUSE_SVG);
     passStamp.createSpan({ cls: "abs-stamp-text", text: "搁置" });
     const quoteEl = card.createDiv({ cls: "abs-swipe-quote" });
     void this.loadCardQuote(top, quoteEl);
@@ -4185,21 +4183,21 @@ export class AppleBooksShelfView extends ItemView {
     let dragging = false;
 
     const reset = () => {
-      card.style.transform = "";
+      card.setCssStyles({ transform: "" });
       card.removeClass("is-dragging");
-      likeStamp.style.opacity = "0";
-      passStamp.style.opacity = "0";
+      likeStamp.setCssStyles({ opacity: "0" });
+      passStamp.setCssStyles({ opacity: "0" });
       if (peek) {
-        peek.style.opacity = "0";
-        peek.style.transform = "translateY(18px) scale(0.96)";
+        peek.setCssStyles({ opacity: "0" });
+        peek.setCssStyles({ transform: "translateY(18px) scale(0.96)" });
       }
     };
 
     const finish = async (choice: "liked" | "shelved") => {
       const direction = choice === "liked" ? 1 : -1;
       card.addClass("is-leaving");
-      card.style.transform = `translateX(${direction * 640}px) rotate(${direction * 22}deg)`;
-      card.style.opacity = "0";
+      card.setCssStyles({ transform: `translateX(${direction * 640}px) rotate(${direction * 22}deg)` });
+      card.setCssStyles({ opacity: "0" });
       await this.saveSwipeChoice(top.file.path, choice);
       await this.writeNoteStatus(top, choice === "liked" ? "想看" : "待看");
       this.deckBatchDone += 1;
@@ -4221,18 +4219,20 @@ export class AppleBooksShelfView extends ItemView {
       dx = event.clientX - startX;
       const dy = event.clientY - startY;
       if (Math.abs(dx) < Math.abs(dy) && Math.abs(dx) < 8) return;
-      card.style.transform = `translate(${dx}px, ${dy * 0.2}px) rotate(${dx / 18}deg)`;
+      card.setCssStyles({ transform: `translate(${dx}px, ${dy * 0.2}px) rotate(${dx / 18}deg)` });
       const likeOpacity = Math.min(1, Math.max(0, (dx - 6) / 150));
       const passOpacity = Math.min(1, Math.max(0, (-dx - 6) / 150));
-      likeStamp.style.opacity = String(likeOpacity);
-      passStamp.style.opacity = String(passOpacity);
+      likeStamp.setCssStyles({ opacity: String(likeOpacity) });
+      passStamp.setCssStyles({ opacity: String(passOpacity) });
 
       if (peek) {
         const reveal = Math.min(1, Math.abs(dx) / 55);
-        peek.style.opacity = String(0.25 + reveal * 0.75);
-        peek.style.transform = `translateY(${16 - reveal * 8}px) scale(${
-          0.95 + reveal * 0.03
-        })`;
+        peek.setCssStyles({
+          opacity: String(0.25 + reveal * 0.75),
+          transform: `translateY(${16 - reveal * 8}px) scale(${
+            0.95 + reveal * 0.03
+          })`,
+        });
       }
     });
 
@@ -4292,7 +4292,9 @@ export class AppleBooksShelfView extends ItemView {
     const horizontal = orientation === "horizontal";
     wrap.addClass(horizontal ? "is-horizontal" : "is-vertical");
 
-    wrap.style.setProperty("--tl-scale", String(this.plugin.settings.timelineScale || 1));
+    wrap.setCssProps({
+      "--tl-scale": String(this.plugin.settings.timelineScale || 1),
+    });
     const controls = wrap.createDiv({ cls: "abs-tl-controls" });
     const orientationLabel =
       this.plugin.settings.timelineOrientation === "auto"
@@ -4426,16 +4428,18 @@ export class AppleBooksShelfView extends ItemView {
         const unit = 9;
         const slabs = Math.max(2, Math.round(height / unit));
         const stack = col.createDiv({ cls: "abs-tl-year-stack" });
-        stack.style.height = `${slabs * unit}px`;
+        stack.setCssStyles({ height: `${slabs * unit}px` });
 
         for (let i = 0; i < slabs; i += 1) {
           const slab = stack.createDiv({ cls: "abs-tl-year-slab" });
           const seed = hash(year * 37 + i * 7);
-          slab.style.height = "7px";
-          slab.style.width = `${56 + Math.round(hash(year + i) * 18)}px`;
-          slab.style.setProperty("--x", `${Math.round((seed - 0.5) * 6)}px`);
-          slab.style.setProperty("--r", `${((seed - 0.5) * 1.6).toFixed(2)}deg`);
-          slab.style.animationDelay = `${colIndex * 140 + i * 28}ms`;
+          slab.setCssStyles({ height: "7px" });
+          slab.setCssStyles({ width: `${56 + Math.round(hash(year + i) * 18)}px` });
+          slab.setCssProps({
+            "--x": `${Math.round((seed - 0.5) * 6)}px`,
+            "--r": `${((seed - 0.5) * 1.6).toFixed(2)}deg`,
+          });
+          slab.setCssStyles({ animationDelay: `${colIndex * 140 + i * 28}ms` });
           const palette = [
             "#c9a48f",
             "#b7c0a8",
@@ -4446,8 +4450,8 @@ export class AppleBooksShelfView extends ItemView {
             "#c7ada3",
           ];
           const base = palette[Math.floor(seed * palette.length) % palette.length];
-          slab.style.background = base;
-          slab.style.opacity = String(0.86 + (i % 3) * 0.05);
+          slab.setCssStyles({ background: base });
+          slab.setCssStyles({ opacity: String(0.86 + (i % 3) * 0.05) });
         }
 
         col.createDiv({ cls: "abs-tl-year-label", text: String(year) });
@@ -4512,7 +4516,7 @@ export class AppleBooksShelfView extends ItemView {
         const pinBottom = pin.getBoundingClientRect().bottom;
         for (const entry of dateNodes) {
           const distance = entry.date.getBoundingClientRect().top - pinBottom;
-          entry.date.style.opacity = String(Math.max(0, Math.min(1, distance / 96)));
+          entry.date.setCssStyles({ opacity: String(Math.max(0, Math.min(1, distance / 96))) });
         }
       };
       wrap.addEventListener("scroll", onScroll, { passive: true });
@@ -4527,7 +4531,7 @@ export class AppleBooksShelfView extends ItemView {
     const tlScale = Number(getComputedStyle(wrap).getPropertyValue("--tl-scale")) || 1;
     const tlLineTop = 30 + 240 * tlScale + 64 + 8 + 4;
     // 初始位置先放在虚线下方，渲染完成后按真实日期行再对齐一次
-    hPin.style.marginTop = `${Math.max(0, tlLineTop + 30)}px`;
+    hPin.setCssStyles({ marginTop: `${Math.max(0, tlLineTop + 30)}px` });
     const hEntries: Array<{ el: HTMLElement; label: string; date: HTMLElement | null }> = [];
 
     const track = wrap.createDiv({ cls: "abs-htl-track" });
@@ -4562,7 +4566,7 @@ export class AppleBooksShelfView extends ItemView {
         img.loading = "lazy";
       } else {
         const fallback = item.createDiv({ cls: "abs-htl-cover abs-htl-fallback" });
-        fallback.style.background = gradientFor(event.title);
+        fallback.setCssStyles({ background: gradientFor(event.title) });
         fallback.createDiv({ cls: "abs-htl-fallback-title", text: event.title });
       }
 
@@ -4597,7 +4601,7 @@ export class AppleBooksShelfView extends ItemView {
         if (!entry.date) continue;
         const rect = entry.date.getBoundingClientRect();
         const distance = rect.left - (leftEdge + 72);
-        entry.date.style.opacity = String(Math.max(0, Math.min(1, distance / 80)));
+        entry.date.setCssStyles({ opacity: String(Math.max(0, Math.min(1, distance / 80))) });
       }
     };
     const alignPinToDates = () => {
@@ -4605,7 +4609,7 @@ export class AppleBooksShelfView extends ItemView {
       if (!dateEl) return;
       const wrapRect = wrap.getBoundingClientRect();
       const dateRect = dateEl.getBoundingClientRect();
-      hPin.style.marginTop = `${Math.max(0, dateRect.top - wrapRect.top)}px`;
+      hPin.setCssStyles({ marginTop: `${Math.max(0, dateRect.top - wrapRect.top)}px` });
     };
 
     wrap.addEventListener("scroll", updateHorizontalPin, { passive: true });
@@ -4631,10 +4635,8 @@ export class AppleBooksShelfView extends ItemView {
     const rail = this.gridEl.createDiv({ cls: "abs-coverflow" });
     // 倾斜越强，卡片越紧：克制留缝、标准贴齐、强烈重叠
     const angleMode = this.plugin.settings.coverflowAngle || "standard";
-    rail.style.setProperty(
-      "--cf-gap",
-      angleMode === "strong" ? "-16px" : angleMode === "soft" ? "10px" : "0px"
-    );
+    rail.setCssProps({ "--cf-gap": angleMode === "strong" ? "-16px" : angleMode === "soft" ? "10px" : "0px"
+     });
     this.currentRail = rail;
     this.bindWheel();
     const cards: HTMLElement[] = [];
@@ -4662,12 +4664,12 @@ export class AppleBooksShelfView extends ItemView {
         img.addEventListener("error", () => {
           img.remove();
           const fallback = card.createDiv({ cls: "abs-cf-fallback" });
-          fallback.style.background = gradientFor(book.title);
+          fallback.setCssStyles({ background: gradientFor(book.title) });
           fallback.createDiv({ cls: "abs-cf-fallback-title", text: book.title });
         });
       } else {
         const fallback = card.createDiv({ cls: "abs-cf-fallback" });
-        fallback.style.background = gradientFor(book.title);
+        fallback.setCssStyles({ background: gradientFor(book.title) });
         fallback.createDiv({ cls: "abs-cf-fallback-title", text: book.title });
       }
       card.addEventListener("click", () => {
@@ -4786,14 +4788,14 @@ export class AppleBooksShelfView extends ItemView {
           if (distance > hideLimit) {
             if (card.dataset.hidden !== "1") {
               card.dataset.hidden = "1";
-              card.style.visibility = "hidden";
+              card.setCssStyles({ visibility: "hidden" });
             }
             return;
           }
 
           if (card.dataset.hidden === "1") {
             card.dataset.hidden = "0";
-            card.style.visibility = "visible";
+            card.setCssStyles({ visibility: "visible" });
             card.dataset.state = "";
           }
 
@@ -4804,7 +4806,7 @@ export class AppleBooksShelfView extends ItemView {
           const state = `${angle.toFixed(1)}|${scale.toFixed(3)}|${depth.toFixed(0)}`;
           if (card.dataset.state === state) return;
           card.dataset.state = state;
-          card.style.transform = `translate3d(0,0,${depth}px) rotateY(${-angle}deg) scale(${scale})`;
+          card.setCssStyles({ transform: `translate3d(0,0,${depth}px) rotateY(${-angle}deg) scale(${scale})` });
         });
 
         // 只有当前卡片变化时才写 DOM 文本和 class，避免每帧重排
@@ -4889,7 +4891,7 @@ export class AppleBooksShelfView extends ItemView {
       active = index;
       cards.forEach((card, i) => card.toggleClass("is-active", i === index));
       if (progressFill) {
-        progressFill.style.width = `${((index + 1) / Math.max(1, books.length)) * 100}%`;
+        progressFill.setCssStyles({ width: `${((index + 1) / Math.max(1, books.length)) * 100}%` });
       }
       const quoteEl = cards[index]?.querySelector(".abs-stack-quote");
       const quoteTarget = quoteEl instanceof HTMLElement ? quoteEl : null;
@@ -4903,7 +4905,7 @@ export class AppleBooksShelfView extends ItemView {
     books.forEach((book, index) => {
       const card = stack.createDiv({ cls: "abs-stack-card" });
       const hue = this.spineHue(book.title);
-      card.style.setProperty("--stack-hue", String(hue));
+      card.setCssProps({ "--stack-hue": String(hue) });
       if (index % 2 === 1) card.addClass("is-alt");
 
       const cover = card.createDiv({ cls: "abs-stack-cover" });
@@ -4916,7 +4918,7 @@ export class AppleBooksShelfView extends ItemView {
         img.loading = "lazy";
       } else {
         const fallback = cover.createDiv({ cls: "abs-stack-fallback" });
-        fallback.style.background = gradientFor(book.title);
+        fallback.setCssStyles({ background: gradientFor(book.title) });
         fallback.createDiv({ cls: "abs-stack-fallback-title", text: book.title });
       }
 
@@ -4978,8 +4980,8 @@ export class AppleBooksShelfView extends ItemView {
       const hue = this.spineHue(book.title);
       const panel = wrap.createDiv({ cls: "abs-fold-panel" });
       if (index % 2 === 1) panel.addClass("is-alt");
-      panel.style.background = `linear-gradient(180deg, hsl(${hue} 42% 44%), hsl(${hue} 46% 28%))`;
-      panel.style.setProperty("--fold-hue", String(hue));
+      panel.setCssStyles({ background: `linear-gradient(180deg, hsl(${hue} 42% 44%), hsl(${hue} 46% 28%))` });
+      panel.setCssProps({ "--fold-hue": String(hue) });
       panel.createDiv({ cls: "abs-fold-title", text: book.title });
 
       panel.addEventListener("click", () => {
@@ -5039,7 +5041,7 @@ export class AppleBooksShelfView extends ItemView {
   }
 
   private applyScale(): void {
-    this.contentEl.style.setProperty("--abs-scale", String(this.currentScale()));
+    this.contentEl.setCssProps({ "--abs-scale": String(this.currentScale()) });
   }
 
   private spineHue(title: string): number {
@@ -5081,10 +5083,10 @@ export class AppleBooksShelfView extends ItemView {
       const spine = document.createElement("div");
       spine.addClass("abs-spine");
       const hue = this.spineHue(book.title);
-      spine.style.background = `linear-gradient(180deg, hsl(${hue} 42% 46%), hsl(${hue} 46% 31%))`;
+      spine.setCssStyles({ background: `linear-gradient(180deg, hsl(${hue} 42% 46%), hsl(${hue} 46% 31%))` });
       const words = book.words || 0;
       const base = words > 0 ? 170 + Math.min(190, Math.sqrt(words) / 3) : 225 + (hue % 4) * 12;
-      spine.style.height = `${Math.round(base * this.currentScale())}px`;
+      spine.setCssStyles({ height: `${Math.round(base * this.currentScale())}px` });
       spine.setAttribute("title", book.title);
       spine.createDiv({ cls: "abs-spine-title", text: book.title });
       spine.addEventListener("click", () => {
@@ -5424,7 +5426,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
         button.setButtonText("重新打开").onClick(() => this.plugin.openSetupWizard())
       );
 
-    containerEl.createEl("h3", { text: "显示" });
+    new Setting(containerEl).setName("显示").setHeading();
 
     new Setting(containerEl)
       .setName("封面显示方式")
@@ -5711,7 +5713,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "收藏" });
+    new Setting(containerEl).setName("收藏").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "收藏有两个来源，各记各的：一是卡片模式右滑「收藏」，二是笔记里写的状态。由你决定以哪个为准。",
@@ -5834,7 +5836,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "字段映射" });
+    new Setting(containerEl).setName("字段映射").setHeading();
 
     const field = (
       name: string,
@@ -5862,7 +5864,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     field("笔记数字段", "摘录或笔记数量，用于顶部统计。", "highlightsField");
     field("最近阅读字段", "用于排序和「最近阅读」显示；留空时使用文件修改时间。", "lastReadField");
 
-    containerEl.createEl("h3", { text: "AI 阅析" });
+    new Setting(containerEl).setName("AI 阅析").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -6002,7 +6004,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "微信读书同步" });
+    new Setting(containerEl).setName("微信读书同步").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -6133,7 +6135,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "苹果图书同步" });
+    new Setting(containerEl).setName("苹果图书同步").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -6203,7 +6205,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           });
       });
 
-    containerEl.createEl("h3", { text: "图标" });
+    new Setting(containerEl).setName("图标").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "侧边栏和标签页使用的图标，默认「无尽知识」。",
@@ -6243,7 +6245,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
           })
       );
 
-    containerEl.createEl("h3", { text: "反馈" });
+    new Setting(containerEl).setName("反馈").setHeading();
     const feedback = containerEl.createDiv({ cls: "abs-feedback-card" });
     const feedbackBody = feedback.createDiv({ cls: "abs-feedback-body" });
     feedbackBody.createDiv({ cls: "abs-feedback-title", text: "GitHub Issues" });
@@ -6266,7 +6268,7 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
       button.addEventListener("click", () => openExternal(url));
     }
 
-    containerEl.createEl("h3", { text: "更多书源" });
+    new Setting(containerEl).setName("更多书源").setHeading();
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text:
@@ -6294,9 +6296,16 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     const sections: Array<{ title: string; nodes: HTMLElement[] }> = [];
 
     for (const child of children) {
-      if (child.tagName === "H3") {
+      const heading =
+        child.classList.contains("setting-item-heading") ||
+        child.tagName === "H3";
+      if (heading) {
         if (current) sections.push(current);
-        current = { title: child.textContent?.trim() ?? "", nodes: [] };
+        const title =
+          child.querySelector(".setting-item-name")?.textContent?.trim() ??
+          child.textContent?.trim() ??
+          "";
+        current = { title, nodes: [] };
         child.remove();
         continue;
       }
