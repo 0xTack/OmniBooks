@@ -1,7 +1,7 @@
 {
   "id": "omnibooks",
   "name": "OmniBooks",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "minAppVersion": "1.7.2",
   "description": "Turn book notes into a cover shelf, reader, timeline, and reading stats. Sync highlights from Apple Books (macOS) and WeRead.",
   "author": "xa",
