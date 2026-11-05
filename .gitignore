@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+*.log
+HANDOFF.md
+DESIGN-SPEC.md
+演示库/
+示例笔记/
+preview/
+site/
+assets/
+.data.json
