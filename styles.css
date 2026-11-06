@@ -10143,10 +10143,10 @@ a[data-href^="ibooks://"] {
 
 .abs-search {
   order: 1 !important;
-  flex: 0 1 140px !important;
+  flex: 0 1 130px !important;
   width: auto !important;
-  min-width: 100px !important;
-  max-width: 160px !important;
+  min-width: 95px !important;
+  max-width: 150px !important;
 }
 
 .abs-search-input,
@@ -10175,6 +10175,11 @@ body.is-phone .abs-actions {
   flex: 1 1 100% !important;
 }
 
+body.omnibooks-phone .abs-toolbar,
+body.is-phone .abs-toolbar {
+  gap: 6px;
+}
+
 /* 文字控件统一高度，避免筛选/排序比搜索框高或矮 */
 .abs-search,
 .abs-filters .abs-filter,
@@ -10188,17 +10193,17 @@ body.is-phone .abs-actions {
 
 /* 筛选和排序等分，换行时也按比例分 */
 .abs-filters .abs-filter {
-  flex: 0 0 74px !important;
-  width: 74px !important;
+  flex: 0 0 68px !important;
+  width: 68px !important;
   min-width: 0 !important;
-  max-width: 100px !important;
+  max-width: 95px !important;
 }
 
 .abs-filters .abs-sort {
-  flex: 0 0 92px !important;
-  width: 92px !important;
+  flex: 0 0 80px !important;
+  width: 80px !important;
   min-width: 0 !important;
-  max-width: 120px !important;
+  max-width: 105px !important;
 }
 
 /* 触控设备：放大控件，保证点按区域 */
