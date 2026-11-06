@@ -3,6 +3,7 @@ import {
   Menu,
   ItemView,
   MarkdownView,
+  Modal,
   Notice,
   Platform,
   Plugin,
@@ -1297,7 +1298,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
       source: null,
       wereadApiKey: this.settings.wereadApiKey ?? "",
       appleStatus: () => appleBooksStatus(),
-      onWereadQrLogin: () => this.startWereadQrLogin(),
+      onWereadQrLogin: (switchAccount?: boolean) =>
+        this.startWereadQrLogin(switchAccount),
       onOpenPermission: () => {
         openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
       },
@@ -2194,13 +2196,60 @@ export default class AppleBooksShelfPlugin extends Plugin {
     ).open();
   }
 
-  async startWereadQrLogin(): Promise<string | null> {
-    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
+  private confirmWereadSwitch(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText("更换微信读书账号");
+      modal.contentEl.createEl("p", {
+        text: "会清除当前设备的 API Key 和扫码登录缓存。旧账号同步的笔记会在下次同步时被清理，默认会先备份。",
+      });
+      const footer = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      footer
+        .createEl("button", { text: "取消" })
+        .addEventListener("click", () => {
+          resolve(false);
+          modal.close();
+        });
+      footer
+        .createEl("button", { cls: "mod-warning", text: "更换账号" })
+        .addEventListener("click", () => {
+          resolve(true);
+          modal.close();
+        });
+      modal.onClose = () => resolve(false);
+      modal.open();
+    });
+  }
+
+  async switchWereadAccount(): Promise<void> {
+    if (!(await this.confirmWereadSwitch())) return;
+    await this.startWereadQrLogin(true);
+    this.refreshViews();
+  }
+
+  async startWereadQrLogin(switchAccount = false): Promise<string | null> {    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
 
     if (Platform.isMobile || !nodeRequire) {
+      if (switchAccount) {
+        this.settings.wereadApiKey = "";
+        await this.saveSettings();
+      }
       openExternal("https://weread.qq.com/r/weread-skills");
-      new Notice("已打开微信读书官方页面，扫码后可复制 API Key");
+      new Notice(
+        switchAccount
+          ? "已清除当前账号。请在网页登录新账号后复制 API Key，粘贴到设置里。"
+          : "已打开微信读书官方页面，扫码后可复制 API Key"
+      );
       return null;
+    }
+
+    if (switchAccount) {
+      // 先退出旧账号：清空 Key、登录缓存，避免扫码窗口直接复用旧 Cookie
+      this.settings.wereadApiKey = "";
+      await this.saveSettings();
+      await this.app.vault.adapter
+        .remove(this.bridgePath("weread-cache.json"))
+        .catch(() => undefined);
     }
 
     try {
@@ -2210,7 +2259,12 @@ export default class AppleBooksShelfPlugin extends Plugin {
             loadURL(url: string): Promise<void>;
             show(): void;
             close(): void;
-            webContents: { session: { cookies: { get(filter: { url: string }): Promise<Array<{ name: string; value: string }>> } } };
+            webContents: {
+              session: {
+                cookies: { get(filter: { url: string }): Promise<Array<{ name: string; value: string }>> };
+                clearStorageData(options?: { storages?: string[] }): Promise<void>;
+              };
+            };
             on(event: string, callback: () => void): void;
           };
           getCurrentWindow(): unknown;
@@ -2223,13 +2277,27 @@ export default class AppleBooksShelfPlugin extends Plugin {
         width: 480,
         height: 720,
         parent: remote.getCurrentWindow(),
-        title: "微信扫码登录",
+        title: switchAccount ? "微信扫码登录（更换账号）" : "微信扫码登录",
         webPreferences: { partition: "persist:omnibooks-weread-login" },
       });
 
+      if (switchAccount) {
+        try {
+          await win.webContents.session.clearStorageData({
+            storages: ["cookies", "localstorage", "indexdb", "cachestorage"],
+          });
+        } catch {
+          /* 清不掉 Cookie 时仍允许手动登录 */
+        }
+      }
+
       await win.loadURL("https://weread.qq.com/#login");
       win.show();
-      new Notice("请用微信扫码登录，登录后会自动获取 API Key");
+      new Notice(
+        switchAccount
+          ? "请用另一个微信扫码登录，登录后会自动替换 API Key"
+          : "请用微信扫码登录，登录后会自动获取 API Key"
+      );
 
       return await new Promise<string | null>((resolve) => {
         let done = false;
@@ -7129,6 +7197,21 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
       .addButton((button) =>
         button.setButtonText("从 Weread 导入").onClick(async () => {
           if (await this.plugin.importWereadKey()) this.display();
+        })
+      );
+
+    const currentWereadKey = this.plugin.settings.wereadApiKey;
+    new Setting(containerEl)
+      .setName("微信读书账号")
+      .setDesc(
+        currentWereadKey
+          ? `已连接 · ${currentWereadKey.slice(0, 6)}…${currentWereadKey.slice(-4)}`
+          : "未连接。可以扫码登录，或从 Weread 插件导入 Key。"
+      )
+      .addButton((button) =>
+        button.setButtonText("更换账号").onClick(async () => {
+          await this.plugin.switchWereadAccount();
+          this.display();
         })
       );
 

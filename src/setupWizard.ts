@@ -26,7 +26,7 @@ export interface SetupWizardOptions {
   source: SetupSource | null;
   wereadApiKey: string;
   appleStatus: () => SetupStatus;
-  onWereadQrLogin: () => Promise<string | null>;
+  onWereadQrLogin: (switchAccount?: boolean) => Promise<string | null>;
   onOpenPermission: () => void;
   onOpenBooks: () => void;
   onSkip: () => void;
@@ -432,13 +432,19 @@ export class SetupWizardModal extends Modal {
     });
 
     const qr = actions.createEl("button", { cls: "abs-wizard-btn", text: "扫码获取" });
-    qr.addEventListener("click", () => {
+    const swap = this.wereadReady()
+      ? actions.createEl("button", { cls: "abs-wizard-btn", text: "更换账号" })
+      : null;
+
+    const beginQr = (switchAccount: boolean) => {
       void (async () => {
         if (this.qrPending) return;
         this.qrPending = true;
         qr.disabled = true;
-        qr.setText("等待扫码…");
-        const key = await this.opts.onWereadQrLogin();
+        qr.setText(switchAccount ? "等待重新登录…" : "等待扫码…");
+        if (swap) swap.disabled = true;
+        if (switchAccount) this.wereadKey = "";
+        const key = await this.opts.onWereadQrLogin(switchAccount);
         this.qrPending = false;
         if (!this.contentEl.isConnected) return;
         if (key) {
@@ -451,8 +457,13 @@ export class SetupWizardModal extends Modal {
         }
         qr.disabled = false;
         qr.setText("扫码获取");
+        if (swap) swap.disabled = false;
+        if (switchAccount) this.render();
       })();
-    });
+    };
+
+    qr.addEventListener("click", () => beginQr(false));
+    swap?.addEventListener("click", () => beginQr(true));
 
     const link = actions.createEl("button", {
       cls: "abs-wizard-link",
