@@ -4,6 +4,14 @@
 
 把书籍笔记变成书架、阅读视图、时间线和阅读统计。微信读书与苹果图书可同时同步，AI 还会给出阅读分析、推荐与反向推荐。
 
+## 截图
+
+| | |
+| --- | --- |
+| ![唱片模式](https://raw.githubusercontent.com/0xTack/OmniBooks/main/assets/listing/slide-1.jpg) | ![双源同步](https://raw.githubusercontent.com/0xTack/OmniBooks/main/assets/listing/slide-2.jpg) |
+| ![阅读视图](https://raw.githubusercontent.com/0xTack/OmniBooks/main/assets/listing/slide-3.jpg) | ![时间线与统计](https://raw.githubusercontent.com/0xTack/OmniBooks/main/assets/listing/slide-4.jpg) |
+| ![AI 阅析](https://raw.githubusercontent.com/0xTack/OmniBooks/main/assets/listing/slide-5.jpg) | |
+
 ## 功能
 
 - **书架视图**：封面墙、卡片模式、唱片模式、时间线（电脑 / iPad）。
