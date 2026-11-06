@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:20";
+const UI_BUILD = "2026-11-06 12:25";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3022,13 +3022,11 @@ export class AppleBooksShelfView extends ItemView {
     // 关键布局直接用行内 !important 固定。
     const must = (el: HTMLElement, prop: string, value: string) =>
       el.style.setProperty(prop, value, "important");
+    const controlH = Platform.isPhone ? "42px" : Platform.isTablet ? "38px" : "30px";
     must(toolbar, "flex-wrap", "wrap");
     toolbar.style.overflowX = "visible";
     toolbar.style.overflowY = "visible";
-    toolbar.style.setProperty(
-      "--abs-control-h",
-      Platform.isPhone ? "42px" : Platform.isTablet ? "38px" : "30px"
-    );
+    toolbar.style.setProperty("--abs-control-h", controlH);
     // 鼠标点完按钮立刻失焦，避免系统焦点环（橙色）残留在图标按钮上
     toolbar.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
@@ -3038,10 +3036,13 @@ export class AppleBooksShelfView extends ItemView {
 
     const searchWrap = toolbar.createDiv({ cls: "abs-search" });
     must(searchWrap, "order", "1");
-    must(searchWrap, "flex", "1 1 220px");
+    must(searchWrap, "flex", "1 1 200px");
     must(searchWrap, "min-width", "140px");
-    must(searchWrap, "max-width", "none");
+    must(searchWrap, "max-width", "280px");
     must(searchWrap, "width", "auto");
+    must(searchWrap, "height", controlH);
+    must(searchWrap, "min-height", controlH);
+    must(searchWrap, "box-sizing", "border-box");
     setIcon(searchWrap.createSpan({ cls: "abs-search-icon" }), "search");
     const input = searchWrap.createEl("input", {
       cls: "abs-search-input",
@@ -3065,6 +3066,13 @@ export class AppleBooksShelfView extends ItemView {
       cls: "dropdown abs-filter",
       attr: { "aria-label": "筛选", type: "button" },
     });
+    must(filterBtn, "height", controlH);
+    must(filterBtn, "min-height", controlH);
+    must(filterBtn, "box-sizing", "border-box");
+    must(filterBtn, "flex", "1 1 100px");
+    must(filterBtn, "width", "auto");
+    must(filterBtn, "min-width", "0");
+    must(filterBtn, "max-width", "200px");
     const repaintFilter = () => {
       const parts: string[] = [];
       if (this.statusFilter !== "全部") parts.push(this.statusFilter);
@@ -3091,6 +3099,13 @@ export class AppleBooksShelfView extends ItemView {
       cls: "dropdown abs-sort",
       attr: { "aria-label": "排序方式" },
     });
+    must(sortSelect, "height", controlH);
+    must(sortSelect, "min-height", controlH);
+    must(sortSelect, "box-sizing", "border-box");
+    must(sortSelect, "flex", "1 1 100px");
+    must(sortSelect, "width", "auto");
+    must(sortSelect, "min-width", "0");
+    must(sortSelect, "max-width", "200px");
     const sortOptions: Array<[SortKey, string]> = [
       ["recent", "最近阅读"],
       ["title", "书名"],
