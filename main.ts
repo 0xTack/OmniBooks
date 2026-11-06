@@ -1344,7 +1344,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
         await this.saveSettings();
         if (!bothSkipped) await this.runFirstSync(result, sync);
-        this.refreshViews(true);
+        this.refreshViews();
       },
       onOpenShelf: () => {
         void this.activateView();
