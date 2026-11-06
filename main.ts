@@ -2983,6 +2983,7 @@ export class AppleBooksShelfView extends ItemView {
     root.addClass("abs-root");
     this.chromeSyncEnabled = this.plugin.settings.syncEnabled;
     this.lastStatsSignature = "";
+    this.lastRenderSignature = "";
     this.coverObserver?.disconnect();
     this.coverObserver = null;
     this.coverLoadQueue = [];
@@ -3927,7 +3928,9 @@ export class AppleBooksShelfView extends ItemView {
     }
     const signature = this.renderSignature(books);
     if (signature === this.lastRenderSignature) {
-      return;
+      // 防御：DOM 被重建但签名没变时（例如视图重新挂载），不能停在空书架
+      const gridEmpty = (this.gridEl?.childElementCount ?? 0) === 0;
+      if (!(books.length > 0 && gridEmpty)) return;
     }
     this.lastRenderSignature = signature;
     this.coverObserver?.disconnect();
@@ -3993,14 +3996,20 @@ export class AppleBooksShelfView extends ItemView {
       this.gridEl.empty();
       this.emptyEl.setCssStyles({ display: "flex" });
       this.emptyEl.empty();
-      this.emptyEl.createDiv({ cls: "abs-empty-title", text: "书架上还没有书" });
+      const hasAnyBooks = this.books.length > 0;
+      this.emptyEl.createDiv({
+        cls: "abs-empty-title",
+        text: hasAnyBooks ? "没有符合筛选的书" : "书架上还没有书",
+      });
       this.emptyEl.createDiv({
         cls: "abs-empty-text",
-        text: this.query || this.statusFilter !== "全部"
-          ? "换个关键词或状态试试。"
-          : "在笔记的 frontmatter 里写上 cover / status / progress / rating / highlights 任意一项，就会出现在这里。",
+        text: hasAnyBooks
+          ? "换一个筛选条件或搜索词试试。"
+          : this.query || this.statusFilter !== "全部"
+            ? "换个关键词或状态试试。"
+            : "在笔记的 frontmatter 里写上 cover / status / progress / rating / highlights 任意一项，就会出现在这里。",
       });
-      if (!this.query && this.statusFilter === "全部") {
+      if (!hasAnyBooks && !this.query && this.statusFilter === "全部") {
         this.emptyEl.createDiv({
           cls: "abs-empty-text abs-empty-debug",
           text: `已扫描 ${this.scanStats.files} 个笔记，识别 ${this.scanStats.matched} 本。`,
