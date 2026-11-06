@@ -3,7 +3,7 @@
   "name": "OmniBooks",
   "version": "0.1.6",
   "minAppVersion": "1.7.2",
-  "description": "把书籍笔记变成书架、阅读视图、时间线和阅读统计，支持苹果图书与微信读书双源同步。",
+  "description": "把书籍笔记变成书架、阅读视图、时间线和阅读统计，支持苹果图书与微信读书双源同步.",
   "author": "阿尔旦",
   "authorUrl": "https://github.com/0xTack",
   "fundingUrl": "https://afdian.com/a/tack123/plan",

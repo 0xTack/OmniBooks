@@ -3063,8 +3063,7 @@ export class AppleBooksShelfView extends ItemView {
     must(toolbar, "flex-wrap", "wrap");
     must(toolbar, "align-items", "center");
     must(toolbar, "gap", "6px");
-    toolbar.style.overflowX = "visible";
-    toolbar.style.overflowY = "visible";
+    toolbar.setCssStyles({ overflowX: "visible", overflowY: "visible" });
     toolbar.style.setProperty("--abs-control-h", controlH);
 
     const makeRow = (cls: string): HTMLElement => {
@@ -3078,8 +3077,10 @@ export class AppleBooksShelfView extends ItemView {
       must(row, "max-width", "100%");
       must(row, "overflow-x", "auto");
       must(row, "overflow-y", "hidden");
-      row.style.setProperty("-webkit-overflow-scrolling", "touch");
-      row.style.setProperty("scrollbar-width", "none");
+      row.setCssStyles({
+        webkitOverflowScrolling: "touch",
+        scrollbarWidth: "none",
+      } as Partial<CSSStyleDeclaration>);
       return row;
     };
     const controlsRow = makeRow("abs-row-controls");
@@ -5312,8 +5313,7 @@ export class AppleBooksShelfView extends ItemView {
       return !entry || (entry.ts || 0) < round;
     });
     const container = this.gridEl.createDiv({ cls: "abs-swipe" });
-    container.style.setProperty("touch-action", "none", "important");
-    container.style.setProperty("overscroll-behavior", "none", "important");
+    container.setCssStyles({ touchAction: "none", overscrollBehavior: "none" });
 
     const liked = Object.values(choices).filter((entry) => entry.choice === "liked").length;
     const shelved = Object.values(choices).filter((entry) => entry.choice === "shelved").length;
@@ -5347,7 +5347,7 @@ export class AppleBooksShelfView extends ItemView {
     }
 
     const card = stackEl.createDiv({ cls: "abs-swipe-card is-top" });
-    card.style.setProperty("touch-action", "none", "important");
+    card.setCssStyles({ touchAction: "none" });
     const coverUrl = this.resolveCover(top.cover, top.file);
     if (coverUrl) {
       const img = card.createEl("img", { cls: "abs-swipe-cover" });
