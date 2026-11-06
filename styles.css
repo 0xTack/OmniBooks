@@ -10143,7 +10143,7 @@ a[data-href^="ibooks://"] {
 
 .abs-search {
   order: 1 !important;
-  flex: 1 1 200px !important;
+  flex: 0 1 220px !important;
   width: auto !important;
   min-width: 140px !important;
   max-width: 280px !important;
@@ -10156,7 +10156,7 @@ a[data-href^="ibooks://"] {
 
 .abs-filters {
   order: 2 !important;
-  flex: 1 1 240px !important;
+  flex: 0 0 auto !important;
   flex-wrap: wrap !important;
 }
 
@@ -10182,8 +10182,8 @@ a[data-href^="ibooks://"] {
 /* 筛选和排序等分，换行时也按比例分 */
 .abs-filters .abs-filter,
 .abs-filters .abs-sort {
-  flex: 1 1 100px !important;
-  width: auto !important;
+  flex: 0 0 120px !important;
+  width: 120px !important;
   min-width: 0 !important;
   max-width: 200px !important;
 }

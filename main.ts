@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:25";
+const UI_BUILD = "2026-11-06 12:30";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3036,7 +3036,7 @@ export class AppleBooksShelfView extends ItemView {
 
     const searchWrap = toolbar.createDiv({ cls: "abs-search" });
     must(searchWrap, "order", "1");
-    must(searchWrap, "flex", "1 1 200px");
+    must(searchWrap, "flex", "0 1 220px");
     must(searchWrap, "min-width", "140px");
     must(searchWrap, "max-width", "280px");
     must(searchWrap, "width", "auto");
@@ -3060,7 +3060,7 @@ export class AppleBooksShelfView extends ItemView {
 
     const filters = toolbar.createDiv({ cls: "abs-filters" });
     must(filters, "order", "2");
-    must(filters, "flex", "1 1 auto");
+    must(filters, "flex", "0 0 auto");
     must(filters, "flex-wrap", "wrap");
     const filterBtn = filters.createEl("button", {
       cls: "dropdown abs-filter",
@@ -3069,8 +3069,8 @@ export class AppleBooksShelfView extends ItemView {
     must(filterBtn, "height", controlH);
     must(filterBtn, "min-height", controlH);
     must(filterBtn, "box-sizing", "border-box");
-    must(filterBtn, "flex", "1 1 100px");
-    must(filterBtn, "width", "auto");
+    must(filterBtn, "flex", "0 0 120px");
+    must(filterBtn, "width", "120px");
     must(filterBtn, "min-width", "0");
     must(filterBtn, "max-width", "200px");
     const repaintFilter = () => {
@@ -3102,8 +3102,8 @@ export class AppleBooksShelfView extends ItemView {
     must(sortSelect, "height", controlH);
     must(sortSelect, "min-height", controlH);
     must(sortSelect, "box-sizing", "border-box");
-    must(sortSelect, "flex", "1 1 100px");
-    must(sortSelect, "width", "auto");
+    must(sortSelect, "flex", "0 0 120px");
+    must(sortSelect, "width", "120px");
     must(sortSelect, "min-width", "0");
     must(sortSelect, "max-width", "200px");
     const sortOptions: Array<[SortKey, string]> = [
