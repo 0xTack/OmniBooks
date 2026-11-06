@@ -10135,19 +10135,20 @@ a[data-href^="ibooks://"] {
 
 .abs-toolbar {
   display: flex;
-  flex-direction: column;
-  flex-wrap: nowrap !important;
-  align-items: stretch;
+  flex-direction: row;
+  flex-wrap: wrap !important;
+  align-items: center;
   gap: 6px;
   overflow: visible;
 }
 
 .abs-row {
   display: flex;
+  flex: 0 1 auto;
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;

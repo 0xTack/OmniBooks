@@ -3025,8 +3025,9 @@ export class AppleBooksShelfView extends ItemView {
     const must = (el: HTMLElement, prop: string, value: string) =>
       el.style.setProperty(prop, value, "important");
     const controlH = Platform.isPhone ? "42px" : Platform.isTablet ? "38px" : "30px";
-    must(toolbar, "flex-direction", "column");
-    must(toolbar, "flex-wrap", "nowrap");
+    must(toolbar, "flex-direction", "row");
+    must(toolbar, "flex-wrap", "wrap");
+    must(toolbar, "align-items", "center");
     must(toolbar, "gap", "6px");
     toolbar.style.overflowX = "visible";
     toolbar.style.overflowY = "visible";
@@ -3035,11 +3036,12 @@ export class AppleBooksShelfView extends ItemView {
     const makeRow = (cls: string): HTMLElement => {
       const row = toolbar.createDiv({ cls: `abs-row ${cls}` });
       must(row, "display", "flex");
+      must(row, "flex", "0 1 auto");
       must(row, "flex-wrap", "nowrap");
       must(row, "align-items", "center");
       must(row, "gap", "8px");
-      must(row, "width", "100%");
       must(row, "min-width", "0");
+      must(row, "max-width", "100%");
       must(row, "overflow-x", "auto");
       must(row, "overflow-y", "hidden");
       row.style.setProperty("-webkit-overflow-scrolling", "touch");
@@ -6722,10 +6724,12 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
       text: "随处可读，一处留痕",
     });
 
-    containerEl.createEl("p", {
-      cls: "setting-item-description",
-      text: `界面构建：${UI_BUILD}`,
-    });
+    if (this.app.vault.getName().includes("测试")) {
+      containerEl.createEl("p", {
+        cls: "setting-item-description",
+        text: `界面构建：${UI_BUILD}`,
+      });
+    }
 
     new Setting(containerEl)
       .setName("安装向导")
