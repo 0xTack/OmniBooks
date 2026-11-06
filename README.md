@@ -2,10 +2,6 @@
 
 ![OmniBooks 万卷书](https://raw.githubusercontent.com/0xTack/OmniBooks/main/assets/omni-hero.jpg)
 
-[![release](https://img.shields.io/github/v/release/0xTack/OmniBooks?label=release&color=b06a4a)](https://github.com/0xTack/OmniBooks/releases)
-[![downloads](https://img.shields.io/github/downloads/0xTack/OmniBooks/total?label=downloads&color=b06a4a)](https://github.com/0xTack/OmniBooks/releases)
-[![license](https://img.shields.io/github/license/0xTack/OmniBooks?color=b06a4a)](https://github.com/0xTack/OmniBooks/blob/main/LICENSE)
-
 把书籍笔记变成书架、阅读视图、时间线和阅读统计。微信读书与苹果图书可同时同步，AI 还会给出阅读分析、推荐与反向推荐。
 
 ## 功能
