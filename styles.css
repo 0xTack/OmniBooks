@@ -10135,10 +10135,28 @@ a[data-href^="ibooks://"] {
 
 .abs-toolbar {
   display: flex;
-  flex-wrap: wrap !important;
+  flex-direction: column;
+  flex-wrap: nowrap !important;
+  align-items: stretch;
+  gap: 6px;
+  overflow: visible;
+}
+
+.abs-row {
+  display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
-  overflow: visible;
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.abs-row::-webkit-scrollbar {
+  display: none;
 }
 
 .abs-search {
@@ -10157,22 +10175,17 @@ a[data-href^="ibooks://"] {
 .abs-filters {
   order: 2 !important;
   flex: 0 0 auto !important;
-  flex-wrap: wrap !important;
+  flex-wrap: nowrap !important;
 }
 
 .abs-actions {
   order: 3 !important;
   flex: 0 0 auto !important;
-  flex-wrap: wrap !important;
+  flex-wrap: nowrap !important;
   margin-left: 0 !important;
   justify-content: flex-start !important;
-  max-width: 100% !important;
+  max-width: none !important;
   min-width: 0 !important;
-}
-
-body.omnibooks-phone .abs-actions,
-body.is-phone .abs-actions {
-  flex: 1 1 100% !important;
 }
 
 body.omnibooks-phone .abs-toolbar,

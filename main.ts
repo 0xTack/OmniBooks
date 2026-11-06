@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:35";
+const UI_BUILD = "2026-11-06 12:40";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3025,10 +3025,29 @@ export class AppleBooksShelfView extends ItemView {
     const must = (el: HTMLElement, prop: string, value: string) =>
       el.style.setProperty(prop, value, "important");
     const controlH = Platform.isPhone ? "42px" : Platform.isTablet ? "38px" : "30px";
-    must(toolbar, "flex-wrap", "wrap");
+    must(toolbar, "flex-direction", "column");
+    must(toolbar, "flex-wrap", "nowrap");
+    must(toolbar, "gap", "6px");
     toolbar.style.overflowX = "visible";
     toolbar.style.overflowY = "visible";
     toolbar.style.setProperty("--abs-control-h", controlH);
+
+    const makeRow = (cls: string): HTMLElement => {
+      const row = toolbar.createDiv({ cls: `abs-row ${cls}` });
+      must(row, "display", "flex");
+      must(row, "flex-wrap", "nowrap");
+      must(row, "align-items", "center");
+      must(row, "gap", "8px");
+      must(row, "width", "100%");
+      must(row, "min-width", "0");
+      must(row, "overflow-x", "auto");
+      must(row, "overflow-y", "hidden");
+      row.style.setProperty("-webkit-overflow-scrolling", "touch");
+      row.style.setProperty("scrollbar-width", "none");
+      return row;
+    };
+    const controlsRow = makeRow("abs-row-controls");
+    const actionsRow = makeRow("abs-row-actions");
     // 鼠标点完按钮立刻失焦，避免系统焦点环（橙色）残留在图标按钮上
     toolbar.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
@@ -3036,7 +3055,7 @@ export class AppleBooksShelfView extends ItemView {
       if (button) window.setTimeout(() => button.blur(), 0);
     });
 
-    const searchWrap = toolbar.createDiv({ cls: "abs-search" });
+    const searchWrap = controlsRow.createDiv({ cls: "abs-search" });
     must(searchWrap, "order", "1");
     must(searchWrap, "flex", "0 1 100px");
     must(searchWrap, "min-width", "72px");
@@ -3061,10 +3080,10 @@ export class AppleBooksShelfView extends ItemView {
       this.updateResults();
     });
 
-    const filters = toolbar.createDiv({ cls: "abs-filters" });
+    const filters = controlsRow.createDiv({ cls: "abs-filters" });
     must(filters, "order", "2");
     must(filters, "flex", "0 0 auto");
-    must(filters, "flex-wrap", "wrap");
+    must(filters, "flex-wrap", "nowrap");
     const filterBtn = filters.createEl("button", {
       cls: "dropdown abs-filter",
       attr: { "aria-label": "筛选", type: "button" },
@@ -3134,11 +3153,11 @@ export class AppleBooksShelfView extends ItemView {
 
     this.sourceSelectEl = null;
 
-    const actions = toolbar.createDiv({ cls: "abs-actions" });
+    const actions = actionsRow.createDiv({ cls: "abs-actions" });
     must(actions, "order", "3");
-    must(actions, "flex", Platform.isPhone ? "1 1 100%" : "0 0 auto");
-    must(actions, "flex-wrap", "wrap");
-    must(actions, "max-width", "100%");
+    must(actions, "flex", "0 0 auto");
+    must(actions, "flex-wrap", "nowrap");
+    must(actions, "max-width", "none");
     must(actions, "min-width", "0");
     must(actions, "margin-left", "0");
     must(actions, "justify-content", "flex-start");
