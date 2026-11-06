@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 13:05";
+const UI_BUILD = "2026-11-06 13:10";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -145,7 +145,7 @@ const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   ratingField: "rating",
   highlightsField: "highlights",
   lastReadField: "lastRead",
-  showTitles: true,
+  showTitles: false,
   defaultSort: "recent",
   booksOutputDir: "OmniBooks/苹果图书",
   coverDir: "",
