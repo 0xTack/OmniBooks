@@ -112,7 +112,6 @@ export class SetupWizardModal extends Modal {
   private saving = false;
   private allowClose = false;
   private showUnfinished = false;
-  private closeHintAt = 0;
   private syncMessage = "";
   private syncReady = false;
   private enteredShelf = false;
@@ -137,15 +136,13 @@ export class SetupWizardModal extends Modal {
     this.contentEl.empty();
   }
 
-  /** 首次安装向导只能通过「完成」或「跳过」结束，避免误关后不再出现。 */
+  /** 点右上角叉号：允许关闭，并记为已完成，之后不再自动弹出 */
   close(): void {
     if (!this.allowClose) {
-      const now = Date.now();
-      if (now - this.closeHintAt > 1500) {
-        this.closeHintAt = now;
-        new Notice("请先点「完成」或「跳过全部」结束安装向导");
-      }
-      return;
+      this.finished = true;
+      this.allowClose = true;
+      if (this.step === "syncing") this.enteredShelf = true;
+      this.opts.onSkip();
     }
     super.close();
   }
