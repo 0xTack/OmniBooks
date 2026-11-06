@@ -10144,7 +10144,7 @@ a[data-href^="ibooks://"] {
 
 .abs-row {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
   align-items: center;
   gap: 8px;

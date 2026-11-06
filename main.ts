@@ -1856,24 +1856,6 @@ export default class AppleBooksShelfPlugin extends Plugin {
     return `${dir}/${file}`;
   }
 
-  /** 手机端排查用：把打开笔记的链路写到库内，方便回到电脑上看 */
-  private mobileLog(line: string): void {
-    if (!Platform.isMobile) return;
-    const dir = normalizePath(this.settings.syncBridgeDir || ".apple-books-sync");
-    const path = `${dir}/mobile-open.log`;
-    const text = `${new Date().toISOString()} ${line}\n`;
-    void (async () => {
-      try {
-        if (!(await this.app.vault.adapter.exists(dir))) {
-          await this.app.vault.adapter.mkdir(dir);
-        }
-        await this.app.vault.adapter.append(path, text);
-      } catch {
-        /* 日志失败不影响功能 */
-      }
-    })();
-  }
-
   runSync(): Promise<{ ok: boolean; message: string }> {
     return (async () => {
       try {
@@ -3036,7 +3018,7 @@ export class AppleBooksShelfView extends ItemView {
     const makeRow = (cls: string): HTMLElement => {
       const row = toolbar.createDiv({ cls: `abs-row ${cls}` });
       must(row, "display", "flex");
-      must(row, "flex", "0 1 auto");
+      must(row, "flex", "0 0 auto");
       must(row, "flex-wrap", "nowrap");
       must(row, "align-items", "center");
       must(row, "gap", "8px");
@@ -4024,9 +4006,10 @@ export class AppleBooksShelfView extends ItemView {
     }
     const signature = this.renderSignature(books);
     if (signature === this.lastRenderSignature) {
-      // 防御：DOM 被重建但签名没变时（例如视图重新挂载），不能停在空书架
-      const gridEmpty = (this.gridEl?.childElementCount ?? 0) === 0;
-      if (!(books.length > 0 && gridEmpty)) return;
+      // 防御：视图重建后仍停在空状态时，强制重绘一次；
+      // 注意不用 gridEl 是否为空判断，封面墙之外的布局是异步渲染的。
+      const emptyShown = this.emptyEl?.style.display === "flex";
+      if (!(books.length > 0 && emptyShown)) return;
     }
     this.lastRenderSignature = signature;
     this.coverObserver?.disconnect();
