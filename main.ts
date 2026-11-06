@@ -1023,10 +1023,11 @@ export default class AppleBooksShelfPlugin extends Plugin {
     const run = () => {
       if (this.pendingReaderPath !== file.path) return;
       if (this.allowSourceOpen) return;
+      const maxAttempts = Platform.isMobile ? 50 : 20;
       if (this.switchingToReader) {
-        if (attempts < 20) {
+        if (attempts < maxAttempts) {
           attempts += 1;
-          window.setTimeout(run, 20);
+          window.setTimeout(run, Platform.isMobile ? 60 : 20);
         }
         return;
       }
@@ -1048,9 +1049,9 @@ export default class AppleBooksShelfPlugin extends Plugin {
         void this.openInReaderView(file, target, requestId);
         return;
       }
-      if (attempts < 20) {
+      if (attempts < maxAttempts) {
         attempts += 1;
-        window.setTimeout(run, 20);
+        window.setTimeout(run, Platform.isMobile ? 60 : 20);
       }
     };
 
@@ -1089,9 +1090,11 @@ export default class AppleBooksShelfPlugin extends Plugin {
       });
 
       let reader: unknown = targetLeaf.view;
-      for (let i = 0; i < 6; i += 1) {
+      const checkCount = Platform.isMobile ? 24 : 6;
+      const checkDelay = Platform.isMobile ? 40 : 10;
+      for (let i = 0; i < checkCount; i += 1) {
         if (reader instanceof BookReaderView) break;
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 10));
+        await new Promise<void>((resolve) => window.setTimeout(resolve, checkDelay));
         reader = targetLeaf.view;
       }
 
@@ -1113,6 +1116,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
       }
 
       if (reader instanceof BookReaderView) {
+        await this.app.workspace.revealLeaf(targetLeaf);
         if (requestId === this.readerRequestId) await reader.setBook([file]);
       } else {
         new Notice("无法切换到阅读视图，请从书架打开");
@@ -1127,7 +1131,9 @@ export default class AppleBooksShelfPlugin extends Plugin {
   }
 
   private async findMarkdownLeaf(file: TFile): Promise<WorkspaceLeaf | null> {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    const maxAttempts = Platform.isMobile ? 24 : 6;
+    const delay = Platform.isMobile ? 50 : 30;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const leaf = this.app.workspace
         .getLeavesOfType("markdown")
         .find(
@@ -1136,7 +1142,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
             item.view.file?.path === file.path
         );
       if (leaf) return leaf;
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 30));
+      await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
     }
     return null;
   }
