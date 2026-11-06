@@ -134,8 +134,10 @@ type FieldKey =
   | "highlightsField"
   | "lastReadField";
 
-const DEFAULT_SETTINGS: AppleBooksSettings = {
-  folder: "",
+/** 测试构建标记：用来确认设备加载的是哪一版界面 */
+const UI_BUILD = "2026-11-06 12:30";
+
+const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
   authorField: "author",
   statusField: "status",
@@ -5015,6 +5017,7 @@ export class AppleBooksShelfView extends ItemView {
   private coverflowObserver: ResizeObserver | null = null;
   private timelineResizeObserver: ResizeObserver | null = null;
   private deckScrollLocked = false;
+  private deckTouchGuard: ((event: TouchEvent) => void) | null = null;
   private curatedPadding = new Set<string>();
   private currentRail: HTMLElement | null = null;
   private sourceSelectEl: HTMLSelectElement | null = null;
@@ -5195,6 +5198,18 @@ export class AppleBooksShelfView extends ItemView {
       el = el.parentElement;
     }
     document.body.classList.add("omnibooks-deck-lock");
+
+    // iPad / iPhone：overflow 和 touch-action 拦不住 document 级滚动与 Obsidian 的滑动手势，
+    // 拖动期间直接在 document 上阻止 touchmove 默认行为。
+    if (!this.deckTouchGuard) {
+      this.deckTouchGuard = (event: TouchEvent) => {
+        if (!this.deckScrollLocked) return;
+        if (event.cancelable) event.preventDefault();
+      };
+      document.addEventListener("touchmove", this.deckTouchGuard, {
+        passive: false,
+      });
+    }
   }
 
   private unlockDeckScroll(): void {
@@ -5203,6 +5218,10 @@ export class AppleBooksShelfView extends ItemView {
     document
       .querySelectorAll(".omnibooks-deck-lock")
       .forEach((el) => el.classList.remove("omnibooks-deck-lock"));
+    if (this.deckTouchGuard) {
+      document.removeEventListener("touchmove", this.deckTouchGuard);
+      this.deckTouchGuard = null;
+    }
   }
 
   private async renderSwipe(books: Book[]): Promise<void> {
@@ -5214,6 +5233,8 @@ export class AppleBooksShelfView extends ItemView {
       return !entry || (entry.ts || 0) < round;
     });
     const container = this.gridEl.createDiv({ cls: "abs-swipe" });
+    container.style.setProperty("touch-action", "none", "important");
+    container.style.setProperty("overscroll-behavior", "none", "important");
 
     const liked = Object.values(choices).filter((entry) => entry.choice === "liked").length;
     const shelved = Object.values(choices).filter((entry) => entry.choice === "shelved").length;
@@ -5247,6 +5268,7 @@ export class AppleBooksShelfView extends ItemView {
     }
 
     const card = stackEl.createDiv({ cls: "abs-swipe-card is-top" });
+    card.style.setProperty("touch-action", "none", "important");
     const coverUrl = this.resolveCover(top.cover, top.file);
     if (coverUrl) {
       const img = card.createEl("img", { cls: "abs-swipe-cover" });
@@ -6656,6 +6678,11 @@ class AppleBooksShelfSettingTab extends PluginSettingTab {
     containerEl.createEl("p", {
       cls: "setting-item-description",
       text: "随处可读，一处留痕",
+    });
+
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text: `界面构建：${UI_BUILD}`,
     });
 
     new Setting(containerEl)
