@@ -4010,6 +4010,35 @@ export class AppleBooksShelfView extends ItemView {
             ? "换个关键词或状态试试。"
             : "在笔记的 frontmatter 里写上 cover / status / progress / rating / highlights 任意一项，就会出现在这里。",
       });
+      if (hasAnyBooks) {
+        const active: string[] = [];
+        if (this.query) active.push(`搜索「${this.query}」`);
+        if (this.statusFilter !== "全部") active.push(`状态：${this.statusFilter}`);
+        if (this.curationFilter === "liked") active.push("只看收藏");
+        if (this.curationFilter === "shelved") active.push("只看搁置");
+        if (this.sourceFilter !== "all") {
+          active.push(`来源：${this.sourceFilter === "apple" ? "苹果图书" : "微信读书"}`);
+        }
+        if (active.length > 0) {
+          this.emptyEl.createDiv({
+            cls: "abs-empty-text abs-empty-debug",
+            text: `当前筛选：${active.join(" · ")}`,
+          });
+        }
+        const reset = this.emptyEl.createEl("button", {
+          cls: "mod-cta abs-import-btn",
+          text: "清除筛选",
+        });
+        reset.addEventListener("click", () => {
+          this.query = "";
+          this.statusFilter = "全部";
+          this.curationFilter = "all";
+          this.sourceFilter = "all";
+          this.lastRenderSignature = "";
+          this.buildChrome();
+          void this.refreshData();
+        });
+      }
       if (!hasAnyBooks && !this.query && this.statusFilter === "全部") {
         this.emptyEl.createDiv({
           cls: "abs-empty-text abs-empty-debug",
