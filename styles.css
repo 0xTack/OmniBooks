@@ -10130,3 +10130,98 @@ a[data-href^="ibooks://"] {
 .nav-folder.abs-hide-folder {
   display: none !important;
 }
+
+/* ---------- 工具栏最终布局：单行 + 横向滚动（所有设备统一） ---------- */
+
+.abs-toolbar {
+  display: flex;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.abs-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+.abs-search {
+  order: 1 !important;
+  flex: 1 1 240px !important;
+  width: auto !important;
+  min-width: 140px !important;
+  max-width: none !important;
+}
+
+.abs-search-input,
+.abs-search input[type="text"] {
+  min-width: 0;
+}
+
+.abs-filters {
+  order: 2 !important;
+  flex: 0 0 auto !important;
+  flex-wrap: nowrap !important;
+}
+
+.abs-actions {
+  order: 3 !important;
+  flex: 0 0 auto !important;
+  flex-wrap: nowrap !important;
+  margin-left: 0 !important;
+  justify-content: flex-start !important;
+}
+
+/* 触控设备：放大控件，保证点按区域 */
+body.omnibooks-phone .abs-toolbar {
+  --abs-control-h: 42px;
+}
+
+body.omnibooks-tablet .abs-toolbar {
+  --abs-control-h: 38px;
+}
+
+body.omnibooks-phone .abs-sync-group,
+body.omnibooks-phone .abs-sync-group .abs-sync-more {
+  height: 42px;
+}
+
+body.omnibooks-tablet .abs-sync-group,
+body.omnibooks-tablet .abs-sync-group .abs-sync-more {
+  height: 38px;
+}
+
+/* 安装向导：首次同步进度 */
+.abs-wizard-progress {
+  height: 6px;
+  margin: 14px 0 8px;
+  border-radius: 999px;
+  background: var(--background-modifier-border);
+  overflow: hidden;
+}
+
+.abs-wizard-progress-fill {
+  width: 40%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--interactive-accent);
+  animation: abs-wizard-progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes abs-wizard-progress-slide {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+.abs-wizard-progress-text {
+  min-height: 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+}

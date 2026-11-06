@@ -16,6 +16,12 @@ export interface SetupResult {
   appleSkipped: boolean;
 }
 
+/** 向导在「正在同步」步骤里回传进度给宿主插件 */
+export interface SetupSyncHandlers {
+  onProgress: (message: string) => void;
+  onBooksReady: () => void;
+}
+
 export interface SetupWizardOptions {
   source: SetupSource | null;
   wereadApiKey: string;
@@ -24,7 +30,7 @@ export interface SetupWizardOptions {
   onOpenPermission: () => void;
   onOpenBooks: () => void;
   onSkip: () => void;
-  onFinish: (result: SetupResult) => Promise<void> | void;
+  onFinish: (result: SetupResult, sync: SetupSyncHandlers) => Promise<void> | void;
   onOpenShelf: () => void;
 }
 
@@ -96,7 +102,7 @@ const SOURCE_OPTIONS: Array<{
 
 export class SetupWizardModal extends Modal {
   private opts: SetupWizardOptions;
-  private step: "source" | "connect" | "done" = "source";
+  private step: "source" | "connect" | "syncing" | "done" = "source";
   private source: SetupSource | null;
   private wereadKey: string;
   private skipWeread = false;
@@ -107,6 +113,10 @@ export class SetupWizardModal extends Modal {
   private allowClose = false;
   private showUnfinished = false;
   private closeHintAt = 0;
+  private syncMessage = "";
+  private syncReady = false;
+  private enteredShelf = false;
+  private syncMessageEl: HTMLElement | null = null;
 
   constructor(app: App, opts: SetupWizardOptions) {
     super(app);
@@ -146,6 +156,7 @@ export class SetupWizardModal extends Modal {
 
     if (this.step === "source") this.renderSource();
     else if (this.step === "connect") this.renderConnect();
+    else if (this.step === "syncing") this.renderSyncing();
     else this.renderDone();
   }
 
@@ -201,22 +212,60 @@ export class SetupWizardModal extends Modal {
       appleSkipped: this.source === "weread" || this.skipApple,
     };
     this.saving = true;
+    this.syncMessage = "正在准备同步…";
+    this.syncReady = false;
+    this.enteredShelf = false;
+    this.syncMessageEl = null;
+    this.step = "syncing";
+    this.render();
     try {
-      await this.opts.onFinish(result);
-      this.step = "done";
+      await this.opts.onFinish(result, {
+        onProgress: (message) => {
+          this.syncMessage = message;
+          if (this.syncMessageEl?.isConnected) {
+            this.syncMessageEl.setText(message);
+          } else if (this.contentEl.isConnected && this.step === "syncing") {
+            this.render();
+          }
+        },
+        onBooksReady: () => {
+          if (this.syncReady) return;
+          this.syncReady = true;
+          if (this.contentEl.isConnected && this.step === "syncing") this.render();
+        },
+      });
+      this.showUnfinished = false;
       this.allowClose = true;
       this.containerEl.removeClass("abs-wizard-locked");
       this.modalEl.removeClass("abs-wizard-locked");
-      this.showUnfinished = false;
-      this.render();
+      if (this.source === "both") {
+        this.step = "done";
+        this.render();
+      } else {
+        const shouldOpen = !this.enteredShelf;
+        this.close();
+        if (shouldOpen) this.opts.onOpenShelf();
+      }
     } catch (error) {
       this.finished = false;
+      this.step = "connect";
+      this.allowClose = false;
+      this.containerEl.addClass("abs-wizard-locked");
+      this.modalEl.addClass("abs-wizard-locked");
+      this.render();
       new Notice(
         `保存设置失败：${error instanceof Error ? error.message : String(error)}`
       );
     } finally {
       this.saving = false;
     }
+  }
+
+  private enterShelfEarly(): void {
+    this.enteredShelf = true;
+    this.allowClose = true;
+    this.close();
+    this.opts.onOpenShelf();
   }
 
   private skipAll(): void {
@@ -322,8 +371,10 @@ export class SetupWizardModal extends Modal {
     }
 
     const footer = contentEl.createDiv({ cls: "abs-wizard-footer" });
-    const back = footer.createEl("button", { cls: "abs-wizard-btn", text: "上一步" });
-    back.addEventListener("click", () => this.goSource());
+    if (both) {
+      const back = footer.createEl("button", { cls: "abs-wizard-btn", text: "上一步" });
+      back.addEventListener("click", () => this.goSource());
+    }
 
     const skip = footer.createEl("button", {
       cls: "abs-wizard-btn is-quiet",
@@ -517,6 +568,44 @@ export class SetupWizardModal extends Modal {
     });
 
     for (const button of buttons) button.disabled = this.skipApple;
+  }
+
+  private renderSyncing(): void {
+    const { contentEl } = this;
+    contentEl.createEl("h2", { text: "正在同步" });
+    contentEl.createEl("p", {
+      cls: "abs-wizard-intro",
+      text:
+        this.source === "both"
+          ? "两个书源正在导入。先导入一部分书就可以进入书架，剩下的会在后台继续。"
+          : "正在导入你的书。先导入一部分就可以进入书架，剩下的会在后台继续。",
+    });
+
+    const progress = contentEl.createDiv({ cls: "abs-wizard-progress" });
+    progress.createDiv({ cls: "abs-wizard-progress-fill" });
+
+    this.syncMessageEl = contentEl.createDiv({
+      cls: "abs-wizard-progress-text",
+      text: this.syncMessage || "正在准备同步…",
+    });
+
+    contentEl.createDiv({
+      cls: "abs-wizard-note",
+      text: this.syncReady
+        ? "已经有一部分书了，可以先进书架；同步完成后会自动提醒。"
+        : "导入到一部分书后会出现「进入书架」按钮，不用等全部完成。",
+    });
+
+    const footer = contentEl.createDiv({ cls: "abs-wizard-footer" });
+    const enter = footer.createEl("button", {
+      cls: "abs-wizard-btn mod-cta",
+      text: this.syncReady ? "进入书架" : "等待导入…",
+    });
+    enter.disabled = !this.syncReady;
+    enter.addEventListener("click", () => {
+      if (!this.syncReady) return;
+      this.enterShelfEarly();
+    });
   }
 
   private renderDone(): void {

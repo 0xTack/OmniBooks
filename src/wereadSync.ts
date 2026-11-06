@@ -36,6 +36,8 @@ export interface WereadSyncOptions {
   /** 保留最近多少份备份 */
   backupKeep?: number;
   onProgress?: (message: string) => void;
+  /** 已处理（写入 / 未变 / 缓存恢复）的书籍累计数量 */
+  onBook?: (total: number) => void;
   onLog?: (line: string) => void;
 }
 
@@ -861,6 +863,7 @@ export async function syncWeread(
         }
         if (old === markdown) {
           report.unchanged += 1;
+          options.onBook?.(report.written + report.unchanged + (report.restored ?? 0));
           continue;
         }
         if (backupMode === "changed") {
@@ -880,6 +883,7 @@ export async function syncWeread(
       }
 
       report.written += 1;
+      options.onBook?.(report.written + report.unchanged + (report.restored ?? 0));
     } catch (error) {
       const cached = cacheById.get(entry.bookId);
       if (cached) {
@@ -889,6 +893,7 @@ export async function syncWeread(
             await app.vault.create(cachedPath, cached.markdown);
             report.restored = (report.restored ?? 0) + 1;
             log(`restored from cache: ${title}`);
+            options.onBook?.(report.written + report.unchanged + (report.restored ?? 0));
             continue;
           } catch {
             /* 落回失败列表 */

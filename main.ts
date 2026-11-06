@@ -31,7 +31,12 @@ import {
 } from "./src/coverStraighten";
 import { AI_MODULES, AiAdvisorModal, AiCache, importCopilotSettings } from "./src/aiAdvisor";
 import { CoverAdjust, CoverAdjustModal } from "./src/coverAdjust";
-import { SetupResult, SetupSource, SetupWizardModal } from "./src/setupWizard";
+import {
+  SetupResult,
+  SetupSource,
+  SetupSyncHandlers,
+  SetupWizardModal,
+} from "./src/setupWizard";
 import { openExternal } from "./src/external";
 import { appendMarkup } from "./src/dom";
 
@@ -1304,7 +1309,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
         this.settings.setupPending = false;
         void this.saveSettings();
       },
-      onFinish: async (result: SetupResult) => {
+      onFinish: async (result: SetupResult, sync: SetupSyncHandlers) => {
         this.settings.setupSource = result.source;
         this.settings.onboarded = true;
         this.settings.setupPending = false;
@@ -1325,7 +1330,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
         }
 
         await this.saveSettings();
-        this.refreshViews();
+        if (!bothSkipped) await this.runFirstSync(result, sync);
+        this.refreshViews(true);
       },
       onOpenShelf: () => {
         void this.activateView();
@@ -1869,7 +1875,10 @@ export default class AppleBooksShelfPlugin extends Plugin {
     })();
   }
 
-  async runWereadSync(): Promise<{ ok: boolean; message: string }> {
+  async runWereadSync(handlers?: {
+    onProgress?: (message: string) => void;
+    onBook?: (total: number) => void;
+  }): Promise<{ ok: boolean; message: string }> {
     if (!this.settings.wereadEnabled) return { ok: true, message: "" };
     if (!this.settings.wereadApiKey) {
       return { ok: false, message: "未配置微信读书 API Key" };
@@ -1893,6 +1902,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
           backupMode: this.settings.wereadBackupMode ?? "changed",
           backupDir: this.settings.wereadBackupDir || ".omnibooks-backup/weread",
           backupKeep: this.settings.wereadBackupKeep ?? 5,
+          onProgress: handlers?.onProgress,
+          onBook: handlers?.onBook,
           onLog: log,
         }
       );
@@ -1922,6 +1933,53 @@ export default class AppleBooksShelfPlugin extends Plugin {
         .catch(() => undefined);
       return { ok: false, message };
     }
+  }
+
+  /** 安装向导点「完成」后的首次同步：边同步边回传进度，部分书入库即通知 */
+  private async runFirstSync(
+    result: SetupResult,
+    sync: SetupSyncHandlers
+  ): Promise<void> {
+    const tasks: Array<Promise<void>> = [];
+
+    if (!result.wereadSkipped) {
+      tasks.push(
+        (async () => {
+          sync.onProgress("微信读书：正在读取书架…");
+          const report = await this.runWereadSync({
+            onProgress: (message) => sync.onProgress(`微信读书 ${message}`),
+            onBook: (total) => {
+              if (total >= 3) sync.onBooksReady();
+            },
+          });
+          if (!report.ok) {
+            new Notice(`微信读书同步失败：${report.message}`, 10000);
+          } else if (report.message) {
+            new Notice(report.message, 6000);
+          }
+        })()
+      );
+    }
+
+    if (!result.appleSkipped) {
+      if (Platform.isDesktopApp) {
+        tasks.push(
+          (async () => {
+            sync.onProgress("苹果图书：正在读取本机书库…");
+            const report = await this.runSync();
+            if (!report.ok) {
+              new Notice(`苹果图书同步失败：${report.message}`, 10000);
+            }
+            sync.onBooksReady();
+          })()
+        );
+      } else {
+        sync.onProgress("苹果图书：请在同一 iCloud 库的 Mac 上完成首次同步。");
+      }
+    }
+
+    await Promise.all(tasks);
+    sync.onProgress("同步完成");
   }
 
   async migrateToDefaultLayout(): Promise<void> {
@@ -3902,6 +3960,19 @@ export class AppleBooksShelfView extends ItemView {
         importBtn.addEventListener("click", () => {
           void this.plugin.importAppleBooks();
         });
+
+        if (
+          this.plugin.settings.wereadEnabled &&
+          this.plugin.settings.wereadApiKey
+        ) {
+          const wereadBtn = this.emptyEl.createEl("button", {
+            cls: "mod-cta abs-import-btn",
+            text: "一键同步微信读书",
+          });
+          wereadBtn.addEventListener("click", () => {
+            void this.runSync("weread");
+          });
+        }
 
         const setupBtn = this.emptyEl.createEl("button", {
           cls: "abs-import-btn",
@@ -6247,9 +6318,16 @@ export class AppleBooksShelfView extends ItemView {
     );
   }
 
+  private syncing = false;
+
   async runSync(scope: "all" | "apple" | "weread" = "all"): Promise<void> {
     if (!this.plugin.settings.syncEnabled) {
       new Notice("同步功能已在设置中关闭");
+      return;
+    }
+
+    if (this.syncing) {
+      new Notice("正在同步，请稍候…", 3000);
       return;
     }
 
@@ -6259,40 +6337,57 @@ export class AppleBooksShelfView extends ItemView {
       this.plugin.settings.wereadEnabled &&
       Boolean(this.plugin.settings.wereadApiKey);
 
-    if (Platform.isDesktopApp) {
-      let apple = { ok: true, message: "" };
-      let weread = { ok: true, message: "" };
+    this.syncing = true;
+    const notice = new Notice("正在同步…", 0);
+    try {
+      if (Platform.isDesktopApp) {
+        let apple = { ok: true, message: "" };
+        let weread = { ok: true, message: "" };
+
+        if (wantApple) {
+          notice.setMessage("正在更新苹果图书…");
+          apple = await this.plugin.runSync();
+        }
+        if (wantWeread) {
+          notice.setMessage("正在更新微信读书…");
+          weread = await this.plugin.runWereadSync({
+            onProgress: (message) => notice.setMessage(`微信读书 ${message}`),
+          });
+        }
+
+        const parts: string[] = [];
+        if (wantApple) {
+          parts.push(apple.ok ? "苹果图书已更新" : `苹果图书失败：${apple.message}`);
+        }
+        if (wantWeread) {
+          parts.push(weread.ok ? weread.message || "微信读书已更新" : `微信读书失败：${weread.message}`);
+        }
+        notice.setMessage(parts.join("；") || "没有可同步的内容");
+
+        if (apple.ok || weread.ok) void this.refreshData();
+        return;
+      }
+
+      if (wantWeread) {
+        notice.setMessage("正在更新微信读书…");
+        const weread = await this.plugin.runWereadSync({
+          onProgress: (message) => notice.setMessage(`微信读书 ${message}`),
+        });
+        notice.setMessage(
+          weread.ok ? weread.message || "微信读书已更新" : `微信读书失败：${weread.message}`
+        );
+        if (weread.ok) void this.refreshData();
+      }
 
       if (wantApple) {
-        apple = await this.plugin.runSync();
+        notice.setMessage("已发送苹果图书请求，等待 Mac 响应…");
+        notice.hide();
+        await this.requestRemoteSync();
+        return;
       }
-      if (wantWeread) {
-        weread = await this.plugin.runWereadSync();
-      }
-
-      const parts: string[] = [];
-      if (wantApple) {
-        parts.push(apple.ok ? "苹果图书已更新" : `苹果图书失败：${apple.message}`);
-      }
-      if (wantWeread) {
-        parts.push(weread.ok ? weread.message || "微信读书已更新" : `微信读书失败：${weread.message}`);
-      }
-      const notice = new Notice("正在同步…", 0);
-      notice.setMessage(parts.join("；") || "没有可同步的内容");
+    } finally {
+      this.syncing = false;
       window.setTimeout(() => notice.hide(), 2600);
-
-      if (apple.ok || weread.ok) void this.refreshData();
-      return;
-    }
-
-    if (wantWeread) {
-      const weread = await this.plugin.runWereadSync();
-      new Notice(weread.ok ? weread.message || "微信读书已更新" : `微信读书失败：${weread.message}`);
-      if (weread.ok) void this.refreshData();
-    }
-
-    if (wantApple) {
-      await this.requestRemoteSync();
     }
   }
 
