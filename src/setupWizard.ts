@@ -30,6 +30,7 @@ export interface SetupWizardOptions {
   onOpenPermission: () => void;
   onOpenBooks: () => void;
   onSkip: () => void;
+  onClosed?: () => void;
   onFinish: (result: SetupResult, sync: SetupSyncHandlers) => Promise<void> | void;
   onOpenShelf: () => void;
 }
@@ -134,6 +135,7 @@ export class SetupWizardModal extends Modal {
 
   onClose(): void {
     this.contentEl.empty();
+    this.opts.onClosed?.();
   }
 
   /** 点右上角叉号：允许关闭，并记为已完成，之后不再自动弹出 */

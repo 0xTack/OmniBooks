@@ -121,6 +121,7 @@ interface AppleBooksSettings {
   onboarded: boolean;
   setupPending: boolean;
   setupSource: SetupSource | null;
+  setupCompleted: boolean;
   feedbackUrl: string;
   bookNoteView: "reader" | "reading" | "live";
 }
@@ -205,6 +206,7 @@ const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   onboarded: false,
   setupPending: false,
   setupSource: null,
+  setupCompleted: false,
   feedbackUrl: "https://github.com/0xTack/OmniBooks/issues/new",
   bookNoteView: "reader",
 };
@@ -525,6 +527,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
   private switchingToReader = false;
   private altKeyDown = false;
   private lastBookFile: TFile | null = null;
+  private setupResumeEl: HTMLElement | null = null;
   private pendingReaderPath = "";
   private manualSourcePath = "";
   private readerRequestId = 0;
@@ -901,6 +904,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
             6000
           );
         }
+        this.syncSetupButton();
 
         // 插件重载后强制重建已有书架视图，确保拿到最新的工具栏/滑杆 DOM。
         window.setTimeout(() => this.refreshViews(false, true), 400);
@@ -909,7 +913,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
   }
 
   onunload(): void {
-    /* Obsidian 会处理视图卸载；不要在这里 detach leaves */
+    this.setupResumeEl?.remove();
+    this.setupResumeEl = null;
   }
 
   async openBookReader(files: TFile[]): Promise<void> {
@@ -1297,6 +1302,29 @@ export default class AppleBooksShelfPlugin extends Plugin {
     await workspace.revealLeaf(leaf);
   }
 
+  /** 安装未完成时，在主界面右下角显示「继续安装」 */
+  private syncSetupButton(): void {
+    const wizardOpen = Boolean(document.querySelector(".abs-wizard"));
+    const show =
+      this.settings.onboarded && !this.settings.setupCompleted && !wizardOpen;
+    if (!show) {
+      this.setupResumeEl?.remove();
+      this.setupResumeEl = null;
+      return;
+    }
+    if (this.setupResumeEl?.isConnected) return;
+    const button = document.body.createEl("button", {
+      cls: "omnibooks-setup-resume",
+      text: "继续安装 OmniBooks",
+    });
+    button.addEventListener("click", () => {
+      button.remove();
+      this.setupResumeEl = null;
+      this.openSetupWizard();
+    });
+    this.setupResumeEl = button;
+  }
+
   openSetupWizard(): void {
     // 首次打开即记为“已看过”：即使中途关掉，也不再每次启动都弹。
     // 但保留 setupPending，下次启动用一条轻提示提醒还有书源没连完。
@@ -1309,7 +1337,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
       wereadApiKey: this.settings.wereadApiKey ?? "",
       appleStatus: () => appleBooksStatus(),
       onWereadQrLogin: (switchAccount?: boolean) =>
-        this.startWereadQrLogin(switchAccount),
+        this.startWereadQrLogin(switchAccount, true),
       onOpenPermission: () => {
         openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
       },
@@ -1319,7 +1347,12 @@ export default class AppleBooksShelfPlugin extends Plugin {
       onSkip: () => {
         this.settings.onboarded = true;
         this.settings.setupPending = false;
+        this.settings.setupCompleted = true;
         void this.saveSettings();
+        this.syncSetupButton();
+      },
+      onClosed: () => {
+        this.syncSetupButton();
       },
       onFinish: async (result: SetupResult, sync: SetupSyncHandlers) => {
         this.settings.setupSource = result.source;
@@ -1344,12 +1377,16 @@ export default class AppleBooksShelfPlugin extends Plugin {
 
         await this.saveSettings();
         if (!bothSkipped) await this.runFirstSync(result, sync);
+        this.settings.setupCompleted = true;
+        await this.saveSettings();
+        this.syncSetupButton();
         this.refreshViews();
       },
       onOpenShelf: () => {
         void this.activateView();
       },
     }).open();
+    this.syncSetupButton();
   }
 
   openFeedback(): void {
@@ -2238,7 +2275,11 @@ export default class AppleBooksShelfPlugin extends Plugin {
     this.refreshViews();
   }
 
-  async startWereadQrLogin(switchAccount = false): Promise<string | null> {    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
+  async startWereadQrLogin(
+    switchAccount = false,
+    reopenWizard = false
+  ): Promise<string | null> {
+    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
 
     if (Platform.isMobile || !nodeRequire) {
       if (switchAccount) {
@@ -2347,6 +2388,13 @@ export default class AppleBooksShelfPlugin extends Plugin {
             );
             finish(key);
             win.close();
+            if (reopenWizard) {
+              window.setTimeout(() => {
+                if (!document.querySelector(".abs-wizard")) {
+                  this.openSetupWizard();
+                }
+              }, 400);
+            }
           } catch {
             /* 等待扫码完成 */
           }
@@ -2716,6 +2764,10 @@ export default class AppleBooksShelfPlugin extends Plugin {
     // 老用户已有配置，不弹首次安装向导；新安装才会看到
     if (data && (data as Partial<AppleBooksSettings>).onboarded === undefined) {
       this.settings.onboarded = true;
+    }
+    // 升级上来的老用户默认已完成安装，不再显示「继续安装」浮按钮
+    if (data && (data as Partial<AppleBooksSettings>).setupCompleted === undefined) {
+      this.settings.setupCompleted = true;
     }
     const legacyReader = (data as { openBookInReader?: boolean } | null)
       ?.openBookInReader;
