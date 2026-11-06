@@ -1324,7 +1324,8 @@ export default class AppleBooksShelfPlugin extends Plugin {
         }
 
         const bothSkipped = result.wereadSkipped && result.appleSkipped;
-        this.settings.syncEnabled = !bothSkipped;
+        // 向导只负责配置书源，不应该把同步按钮一起藏掉
+        this.settings.syncEnabled = true;
         if (!bothSkipped) {
           if (result.appleSkipped) this.settings.syncScope = "weread";
           else if (result.wereadSkipped) this.settings.syncScope = "apple";
