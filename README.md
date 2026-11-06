@@ -1,6 +1,6 @@
 # OmniBooks 万卷书
 
-把 Obsidian 里的书籍笔记渲染成书架，并提供阅读视图、时间线、统计和可选的 AI 顾问。
+把书籍笔记变成书架、阅读视图、时间线和阅读统计。微信读书与苹果图书可同时同步，AI 还会给出阅读分析、推荐与反向推荐。
 
 ## 功能
 
@@ -11,6 +11,8 @@
 - **阅读时间线**：年份·月份置顶、每天只标一次日期、靠近时淡出。
 - **统计**：完成率、日历热力图、领域分布、阅读时间。
 - **AI 顾问**：六维画像、雷达图、推荐、数据页；需要你自己的 API Key。
+
+> 目前重点优化电脑端，平板和手机端仍在完善中。个人开发者精力有限，还请多给一点时间；后续会持续更新，逐步把体验做得更优雅。可以放心下载使用。
 
 ## 安装
 
@@ -93,6 +95,8 @@ OmniBooks reads Markdown notes that carry book frontmatter (`title`, `author`, `
 - **Reading timeline** — year/month pins, one date per day, fade-out near the pinned label.
 - **Statistics** — completion rate, calendar heatmap, domain distribution, reading time.
 - **AI advisor (optional)** — reading profile, radar chart, recommendations, and a data page. Requires your own API key.
+
+> The desktop experience is the current focus; tablet and mobile are still being polished. As a solo developer, updates take a little time — thank you for your patience. More improvements are on the way, and it's safe to download and use today.
 
 ## Installation
 
