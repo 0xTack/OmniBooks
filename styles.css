@@ -10137,16 +10137,17 @@ a[data-href^="ibooks://"] {
   display: flex;
   flex-wrap: wrap !important;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   overflow: visible;
 }
 
 .abs-search {
   order: 1 !important;
-  flex: 0 1 130px !important;
+  flex: 0 1 100px !important;
   width: auto !important;
-  min-width: 95px !important;
-  max-width: 150px !important;
+  min-width: 72px !important;
+  max-width: 120px !important;
 }
 
 .abs-search-input,
@@ -10204,6 +10205,13 @@ body.is-phone .abs-toolbar {
   width: 80px !important;
   min-width: 0 !important;
   max-width: 105px !important;
+  text-align: center !important;
+  text-align-last: center !important;
+  padding: 0 16px !important;
+}
+
+.abs-filters .abs-filter {
+  text-align: center !important;
 }
 
 /* 触控设备：放大控件，保证点按区域 */

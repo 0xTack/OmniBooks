@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 13:00";
+const UI_BUILD = "2026-11-06 13:05";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3026,6 +3026,7 @@ export class AppleBooksShelfView extends ItemView {
       el.style.setProperty(prop, value, "important");
     const controlH = Platform.isPhone ? "42px" : Platform.isTablet ? "38px" : "30px";
     must(toolbar, "flex-wrap", "wrap");
+    must(toolbar, "justify-content", "center");
     toolbar.style.overflowX = "visible";
     toolbar.style.overflowY = "visible";
     toolbar.style.setProperty("--abs-control-h", controlH);
@@ -3038,9 +3039,9 @@ export class AppleBooksShelfView extends ItemView {
 
     const searchWrap = toolbar.createDiv({ cls: "abs-search" });
     must(searchWrap, "order", "1");
-    must(searchWrap, "flex", "0 1 130px");
-    must(searchWrap, "min-width", "95px");
-    must(searchWrap, "max-width", "150px");
+    must(searchWrap, "flex", "0 1 100px");
+    must(searchWrap, "min-width", "72px");
+    must(searchWrap, "max-width", "120px");
     must(searchWrap, "width", "auto");
     must(searchWrap, "height", controlH);
     must(searchWrap, "min-height", controlH);
@@ -3050,8 +3051,8 @@ export class AppleBooksShelfView extends ItemView {
       cls: "abs-search-input",
       attr: {
         type: "text",
-        placeholder: "搜索",
-        "aria-label": "搜索书名或作者",
+        placeholder: "",
+        "aria-label": "搜索",
       },
     });
     input.value = this.query;
@@ -3078,6 +3079,7 @@ export class AppleBooksShelfView extends ItemView {
     must(filterBtn, "max-width", "95px");
     must(filterBtn, "padding", "0 6px");
     must(filterBtn, "font-size", "12px");
+    must(filterBtn, "text-align", "center");
     const repaintFilter = () => {
       const parts: string[] = [];
       if (this.statusFilter !== "全部") parts.push(this.statusFilter);
@@ -3111,8 +3113,10 @@ export class AppleBooksShelfView extends ItemView {
     must(sortSelect, "width", "80px");
     must(sortSelect, "min-width", "0");
     must(sortSelect, "max-width", "105px");
-    must(sortSelect, "padding", "0 16px 0 4px");
+    must(sortSelect, "padding", "0 16px");
     must(sortSelect, "font-size", "12px");
+    must(sortSelect, "text-align", "center");
+    must(sortSelect, "text-align-last", "center");
     const sortOptions: Array<[SortKey, string]> = [
       ["recent", "最近阅读"],
       ["title", "书名"],
