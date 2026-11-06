@@ -50,7 +50,7 @@ type SortKey = "recent" | "title" | "rating" | "progress" | "words";
 type ShelfLayout = "grid" | "deck" | "stack" | "coverflow" | "timeline";
 
 /** iPhone 只保留封面墙和时间线；iPad / 电脑使用完整布局。 */
-const PHONE_LAYOUTS: ShelfLayout[] = ["grid", "timeline"];
+const PHONE_LAYOUTS: ShelfLayout[] = ["grid"];
 
 interface AppleBooksSettings {
   folder: string;
@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:35";
+const UI_BUILD = "2026-11-06 12:40";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -654,9 +654,11 @@ export default class AppleBooksShelfPlugin extends Plugin {
       id: "cycle-shelf-view",
       name: "切换书架视图",
       callback: () => {
-        const order: ShelfLayout[] = Platform.isPhone
-          ? ["grid", "timeline"]
-          : ["grid", "deck", "coverflow", "timeline"];
+        if (Platform.isPhone) {
+          new Notice("手机端固定为封面墙，不能切换视图");
+          return;
+        }
+        const order: ShelfLayout[] = ["grid", "deck", "coverflow", "timeline"];
         const labels: Record<ShelfLayout, string> = {
           grid: "封面墙",
           deck: "卡片模式",
@@ -2743,7 +2745,7 @@ export default class AppleBooksShelfPlugin extends Plugin {
       this.settings.bookNoteView = "live";
     }
     const allowed: ShelfLayout[] = Platform.isPhone
-      ? ["grid", "timeline"]
+      ? PHONE_LAYOUTS
       : ["grid", "deck", "coverflow", "timeline"];
     if (!allowed.includes(this.settings.shelfLayout)) {
       this.settings.shelfLayout = "grid";
@@ -3138,53 +3140,50 @@ export class AppleBooksShelfView extends ItemView {
     setIcon(aiBtn, "sparkles");
     aiBtn.addEventListener("click", () => this.plugin.openAiAdvisor());
 
-    const layoutBtn = actions.createEl("button", {
-      cls: "clickable-icon abs-icon-btn",
-      attr: { "aria-label": "切换视图", type: "button" },
-    });
-    setIcon(layoutBtn, "eye");
-    layoutBtn.addEventListener("click", (event: MouseEvent) => {
-      const modes: Array<{
-        id: ShelfLayout;
-        label: string;
-      }> = Platform.isPhone
-        ? [
-            { id: "grid", label: "封面墙" },
-            { id: "timeline", label: "时间线" },
-          ]
-        : [
-            { id: "grid", label: "封面墙" },
-            { id: "deck", label: "卡片模式" },
-            { id: "coverflow", label: "唱片模式" },
-            { id: "timeline", label: "时间线" },
-          ];
+    if (!Platform.isPhone) {
+      const layoutBtn = actions.createEl("button", {
+        cls: "clickable-icon abs-icon-btn",
+        attr: { "aria-label": "切换视图", type: "button" },
+      });
+      setIcon(layoutBtn, "eye");
+      layoutBtn.addEventListener("click", (event: MouseEvent) => {
+        const modes: Array<{
+          id: ShelfLayout;
+          label: string;
+        }> = [
+          { id: "grid", label: "封面墙" },
+          { id: "deck", label: "卡片模式" },
+          { id: "coverflow", label: "唱片模式" },
+          { id: "timeline", label: "时间线" },
+        ];
 
-      const menu = new Menu();
-      for (const mode of modes) {
-        menu.addItem((item) =>
-          item
-            .setTitle(mode.label)
-            .setChecked(this.plugin.settings.shelfLayout === mode.id)
-            .onClick(async () => {
-              this.plugin.settings.shelfLayout = mode.id;
-              this.lastRenderSignature = "";
-              this.rebuild();
-              setIcon(layoutBtn, "eye");
-              new Notice(`已切换到：${mode.label}`);
-              try {
-                await this.plugin.saveSettings();
-              } catch (error) {
-                new Notice(
-                  `视图已切换，但保存失败：${
-                    error instanceof Error ? error.message : String(error)
-                  }`
-                );
-              }
-            })
-        );
-      }
-      menu.showAtMouseEvent(event);
-    });
+        const menu = new Menu();
+        for (const mode of modes) {
+          menu.addItem((item) =>
+            item
+              .setTitle(mode.label)
+              .setChecked(this.plugin.settings.shelfLayout === mode.id)
+              .onClick(async () => {
+                this.plugin.settings.shelfLayout = mode.id;
+                this.lastRenderSignature = "";
+                this.rebuild();
+                setIcon(layoutBtn, "eye");
+                new Notice(`已切换到：${mode.label}`);
+                try {
+                  await this.plugin.saveSettings();
+                } catch (error) {
+                  new Notice(
+                    `视图已切换，但保存失败：${
+                      error instanceof Error ? error.message : String(error)
+                    }`
+                  );
+                }
+              })
+          );
+        }
+        menu.showAtMouseEvent(event);
+      });
+    }
 
     const timelineBtn = actions.createEl("button", {
       cls: "clickable-icon abs-icon-btn",
