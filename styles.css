@@ -10137,7 +10137,6 @@ a[data-href^="ibooks://"] {
   display: flex;
   flex-wrap: wrap !important;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   overflow: visible;
 }
