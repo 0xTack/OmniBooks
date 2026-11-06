@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:45";
+const UI_BUILD = "2026-11-06 12:50";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3038,9 +3038,9 @@ export class AppleBooksShelfView extends ItemView {
 
     const searchWrap = toolbar.createDiv({ cls: "abs-search" });
     must(searchWrap, "order", "1");
-    must(searchWrap, "flex", "0 1 170px");
-    must(searchWrap, "min-width", "120px");
-    must(searchWrap, "max-width", "200px");
+    must(searchWrap, "flex", "0 1 140px");
+    must(searchWrap, "min-width", "100px");
+    must(searchWrap, "max-width", "160px");
     must(searchWrap, "width", "auto");
     must(searchWrap, "height", controlH);
     must(searchWrap, "min-height", controlH);
@@ -3050,11 +3050,12 @@ export class AppleBooksShelfView extends ItemView {
       cls: "abs-search-input",
       attr: {
         type: "text",
-        placeholder: "搜索书名或作者",
+        placeholder: "搜索",
         "aria-label": "搜索书名或作者",
       },
     });
     input.value = this.query;
+    must(input, "font-size", "12px");
     input.addEventListener("input", () => {
       this.query = input.value;
       this.updateResults();
@@ -3071,10 +3072,12 @@ export class AppleBooksShelfView extends ItemView {
     must(filterBtn, "height", controlH);
     must(filterBtn, "min-height", controlH);
     must(filterBtn, "box-sizing", "border-box");
-    must(filterBtn, "flex", "0 0 100px");
-    must(filterBtn, "width", "100px");
+    must(filterBtn, "flex", "0 0 74px");
+    must(filterBtn, "width", "74px");
     must(filterBtn, "min-width", "0");
-    must(filterBtn, "max-width", "140px");
+    must(filterBtn, "max-width", "100px");
+    must(filterBtn, "padding", "0 6px");
+    must(filterBtn, "font-size", "12px");
     const repaintFilter = () => {
       const parts: string[] = [];
       if (this.statusFilter !== "全部") parts.push(this.statusFilter);
@@ -3104,10 +3107,12 @@ export class AppleBooksShelfView extends ItemView {
     must(sortSelect, "height", controlH);
     must(sortSelect, "min-height", controlH);
     must(sortSelect, "box-sizing", "border-box");
-    must(sortSelect, "flex", "0 0 100px");
-    must(sortSelect, "width", "100px");
+    must(sortSelect, "flex", "0 0 92px");
+    must(sortSelect, "width", "92px");
     must(sortSelect, "min-width", "0");
-    must(sortSelect, "max-width", "140px");
+    must(sortSelect, "max-width", "120px");
+    must(sortSelect, "padding", "0 16px 0 4px");
+    must(sortSelect, "font-size", "12px");
     const sortOptions: Array<[SortKey, string]> = [
       ["recent", "最近阅读"],
       ["title", "书名"],
