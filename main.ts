@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:30";
+const UI_BUILD = "2026-11-06 12:35";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3126,7 +3126,7 @@ export class AppleBooksShelfView extends ItemView {
 
     const actions = toolbar.createDiv({ cls: "abs-actions" });
     must(actions, "order", "3");
-    must(actions, "flex", "1 1 100%");
+    must(actions, "flex", "0 0 auto");
     must(actions, "flex-wrap", "wrap");
     must(actions, "margin-left", "0");
     must(actions, "justify-content", "flex-start");

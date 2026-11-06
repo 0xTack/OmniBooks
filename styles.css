@@ -10162,7 +10162,7 @@ a[data-href^="ibooks://"] {
 
 .abs-actions {
   order: 3 !important;
-  flex: 1 1 100% !important;
+  flex: 0 0 auto !important;
   flex-wrap: wrap !important;
   margin-left: 0 !important;
   justify-content: flex-start !important;
