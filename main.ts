@@ -135,7 +135,7 @@ type FieldKey =
   | "lastReadField";
 
 /** 测试构建标记：用来确认设备加载的是哪一版界面 */
-const UI_BUILD = "2026-11-06 12:30";
+const UI_BUILD = "2026-11-06 12:20";
 
 const DEFAULT_SETTINGS: AppleBooksSettings = {  folder: "",
   coverField: "cover",
@@ -3019,13 +3019,12 @@ export class AppleBooksShelfView extends ItemView {
 
     const toolbar = root.createDiv({ cls: "abs-toolbar" });
     // 兜底：部分设备只同步到新的 main.js、styles.css 还是旧的。
-    // 关键布局直接用行内 !important 固定，保证工具栏永远单行横滑。
+    // 关键布局直接用行内 !important 固定。
     const must = (el: HTMLElement, prop: string, value: string) =>
       el.style.setProperty(prop, value, "important");
-    must(toolbar, "flex-wrap", "nowrap");
-    toolbar.style.overflowX = "auto";
-    toolbar.style.overflowY = "hidden";
-    toolbar.style.setProperty("-webkit-overflow-scrolling", "touch");
+    must(toolbar, "flex-wrap", "wrap");
+    toolbar.style.overflowX = "visible";
+    toolbar.style.overflowY = "visible";
     toolbar.style.setProperty(
       "--abs-control-h",
       Platform.isPhone ? "42px" : Platform.isTablet ? "38px" : "30px"
@@ -3039,7 +3038,7 @@ export class AppleBooksShelfView extends ItemView {
 
     const searchWrap = toolbar.createDiv({ cls: "abs-search" });
     must(searchWrap, "order", "1");
-    must(searchWrap, "flex", "1 1 240px");
+    must(searchWrap, "flex", "1 1 220px");
     must(searchWrap, "min-width", "140px");
     must(searchWrap, "max-width", "none");
     must(searchWrap, "width", "auto");
@@ -3060,8 +3059,8 @@ export class AppleBooksShelfView extends ItemView {
 
     const filters = toolbar.createDiv({ cls: "abs-filters" });
     must(filters, "order", "2");
-    must(filters, "flex", "0 0 auto");
-    must(filters, "flex-wrap", "nowrap");
+    must(filters, "flex", "1 1 auto");
+    must(filters, "flex-wrap", "wrap");
     const filterBtn = filters.createEl("button", {
       cls: "dropdown abs-filter",
       attr: { "aria-label": "筛选", type: "button" },
@@ -3112,8 +3111,8 @@ export class AppleBooksShelfView extends ItemView {
 
     const actions = toolbar.createDiv({ cls: "abs-actions" });
     must(actions, "order", "3");
-    must(actions, "flex", "0 0 auto");
-    must(actions, "flex-wrap", "nowrap");
+    must(actions, "flex", "1 1 100%");
+    must(actions, "flex-wrap", "wrap");
     must(actions, "margin-left", "0");
     must(actions, "justify-content", "flex-start");
 

@@ -10131,26 +10131,19 @@ a[data-href^="ibooks://"] {
   display: none !important;
 }
 
-/* ---------- 工具栏最终布局：单行 + 横向滚动（所有设备统一） ---------- */
+/* ---------- 工具栏最终布局：文字控件一行、图标按钮一行 ---------- */
 
 .abs-toolbar {
   display: flex;
-  flex-wrap: nowrap !important;
+  flex-wrap: wrap !important;
   align-items: center;
   gap: 8px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.abs-toolbar::-webkit-scrollbar {
-  display: none;
+  overflow: visible;
 }
 
 .abs-search {
   order: 1 !important;
-  flex: 1 1 240px !important;
+  flex: 1 1 220px !important;
   width: auto !important;
   min-width: 140px !important;
   max-width: none !important;
@@ -10163,16 +10156,36 @@ a[data-href^="ibooks://"] {
 
 .abs-filters {
   order: 2 !important;
-  flex: 0 0 auto !important;
-  flex-wrap: nowrap !important;
+  flex: 1 1 240px !important;
+  flex-wrap: wrap !important;
 }
 
 .abs-actions {
   order: 3 !important;
-  flex: 0 0 auto !important;
-  flex-wrap: nowrap !important;
+  flex: 1 1 100% !important;
+  flex-wrap: wrap !important;
   margin-left: 0 !important;
   justify-content: flex-start !important;
+}
+
+/* 文字控件统一高度，避免筛选/排序比搜索框高或矮 */
+.abs-search,
+.abs-filters .abs-filter,
+.abs-filters .abs-sort,
+.abs-filters .abs-status,
+.abs-filters .abs-source {
+  height: var(--abs-control-h) !important;
+  min-height: var(--abs-control-h) !important;
+  box-sizing: border-box;
+}
+
+/* 筛选和排序等分，换行时也按比例分 */
+.abs-filters .abs-filter,
+.abs-filters .abs-sort {
+  flex: 1 1 110px !important;
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
 }
 
 /* 触控设备：放大控件，保证点按区域 */
