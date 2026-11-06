@@ -10166,6 +10166,13 @@ a[data-href^="ibooks://"] {
   flex-wrap: wrap !important;
   margin-left: 0 !important;
   justify-content: flex-start !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+body.omnibooks-phone .abs-actions,
+body.is-phone .abs-actions {
+  flex: 1 1 100% !important;
 }
 
 /* 文字控件统一高度，避免筛选/排序比搜索框高或矮 */
